@@ -14,4 +14,4 @@ main :: IO ()
 main = nodeLink streamGraph1 listenPort connectHost connectPort
 
 streamGraph1 :: Stream String -> Stream String
-streamGraph1 s = streamMap (\st-> reverse st) s
+streamGraph1 = streamMap Prelude.id
