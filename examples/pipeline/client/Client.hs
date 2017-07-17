@@ -8,7 +8,11 @@ import Striot.FunctionalProcessing
 import Striot.FunctionalIoTtypes
 import Striot.Nodes
 import Network
+
 import qualified Network.MQTT as MQTT
+import Data.Text (Text)
+import Data.ByteString (ByteString)
+import Control.Monad(when)
 
 portNum  = 9002::PortNumber
 hostName = "haskellclient2"::HostName
@@ -48,7 +52,7 @@ main = do
 
     -- atomically (readTChan pubChan)
     threadDelay (1 * 1000 * 1000)
-    nodeSource (getMqttMsg pubChan) streamGraph2 hostName portNum -- processes source before sending it to another node
+    nodeSource (getMqttMsgByTopic pubChan accelT) streamGraph2 hostName portNum -- processes source before sending it to another node
 
 streamGraph2 :: Stream String -> Stream String
 streamGraph2 = streamMap Prelude.id
@@ -58,7 +62,26 @@ getMqttMsg pubChan = atomically (readTChan pubChan) >>= handleMsg
 
 handleMsg :: MQTT.Message 'MQTT.PUBLISH -> IO String
 handleMsg msg = do
+    let (t,p,l) = extractMsg msg
+    -- let t = MQTT.topic $ MQTT.body msg
+    --     p = MQTT.payload $ MQTT.body msg
+    --     l = MQTT.getLevels t
+    return $ read (show t) ++ " " ++ read (show p)
+
+getMqttMsgByTopic :: TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO String
+getMqttMsgByTopic pubChan topic = atomically (readTChan pubChan) >>= handleMsgByTopic topic
+
+handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO String
+handleMsgByTopic topic msg = do
+    let (t,p,l) = extractMsg msg
+    if topic == t then
+        return $ read (show t) ++ " " ++ read (show p)
+    else
+        return ""
+
+extractMsg :: MQTT.Message 'MQTT.PUBLISH -> (MQTT.Topic, ByteString, [Text])
+extractMsg msg =
     let t = MQTT.topic $ MQTT.body msg
         p = MQTT.payload $ MQTT.body msg
         l = MQTT.getLevels t
-    return $ read (show t) ++ " " ++ read (show p)
+    in (t,p,l)
