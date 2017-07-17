@@ -15,5 +15,6 @@ streamGraph1 s = streamWindow (chop 2) $ streamMap (\st-> "Incoming Message at S
 
 printStream:: Show alpha => Stream alpha -> IO ()
 printStream (h:t) = do
-                      putStrLn $ show h
+                      appendFile "output.txt" (show h ++ "\n")
+                      print h
                       printStream t
