@@ -11,11 +11,14 @@ import Network
 
 import qualified Network.MQTT as MQTT
 import Data.Text (Text)
+import Data.String
 import Data.ByteString (ByteString)
 import Control.Monad(when)
 
+import System.Environment
+
 portNum  = 9002::PortNumber
-hostName = "haskellclient2"::HostName
+--hostName = "haskellclient2"::HostName
 
 accelT, btnT, tempT, magnT :: MQTT.Topic
 accelT = "ACCELEROMETER"
@@ -25,12 +28,16 @@ magnT = "MAGNEMOTER"
 
 main :: IO ()
 main = do
+    podName <- getEnv "HOSTNAME"
+    hostName <- getEnv "HASKELL_CLIENT2_SERVICE_HOST"
     cmds <- MQTT.mkCommands
     pubChan <- newTChanIO
     let conf = (MQTT.defaultConfig cmds pubChan)
                   {
-                  MQTT.cHost = "10.68.144.122"
-                  , MQTT.cUsername = Just "mqtt-hs"
+                --   MQTT.cHost        = "10.68.144.122"
+                  MQTT.cHost        = "mqtt-broker.eastus.cloudapp.azure.com"
+                  , MQTT.cUsername  = Just $ fromString podName
+                  , MQTT.cClientID  = fromString $ "mqtt-haskell_" ++ podName
                   }
 
     -- Attempt to subscribe to individual topics
