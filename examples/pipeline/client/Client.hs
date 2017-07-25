@@ -20,7 +20,9 @@ accelT, btnT, tempT, magnT :: MQTT.Topic
 accelT = "ACCELEROMETER"
 btnT = "BUTTON"
 tempT = "TEMPERATURE"
-magnT = "MAGNEMOTER"
+magnT = "MAGNETOMETER/+"
+-- + one level deep wildcard
+-- * all levels below wildcard
 
 main :: IO ()
 main = do
@@ -28,7 +30,8 @@ main = do
     pubChan <- newTChanIO
     let conf = (MQTT.defaultConfig cmds pubChan)
                   {
-                  MQTT.cHost = "10.68.144.122"
+                  --MQTT.cHost = "10.68.144.122"
+                  MQTT.cHost = "mqtt-broker.eastus.cloudapp.azure.com"
                   , MQTT.cUsername = Just "mqtt-hs"
                   }
 
@@ -51,7 +54,8 @@ main = do
 
     -- atomically (readTChan pubChan)
     threadDelay (1 * 1000 * 1000)
-    nodeSource (getMqttMsgByTopic pubChan accelT) streamGraph2 hostName portNum -- processes source before sending it to another node
+    nodeSource (getMqttMsgByTopic pubChan btnT) streamGraph2 hostName portNum -- processes source before sending it to another node
+    -- nodeSource (getMqttMsg pubChan) streamGraph2 hostName portNum -- processes source before sending it to another node
 
 streamGraph2 :: Stream String -> Stream String
 streamGraph2 = streamMap Prelude.id
@@ -60,23 +64,24 @@ getMqttMsg :: TChan (MQTT.Message 'MQTT.PUBLISH) -> IO String
 getMqttMsg pubChan = atomically (readTChan pubChan) >>= handleMsg
 
 handleMsg :: MQTT.Message 'MQTT.PUBLISH -> IO String
-handleMsg msg = do
+handleMsg msg =
     let (t,p,l) = extractMsg msg
-    -- let t = MQTT.topic $ MQTT.body msg
-    --     p = MQTT.payload $ MQTT.body msg
-    --     l = MQTT.getLevels t
-    return $ read (show t) ++ " " ++ read (show p)
+    in return $ read (show t) ++ " " ++ read (show p)
 
 getMqttMsgByTopic :: TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO String
-getMqttMsgByTopic pubChan topic = atomically (readTChan pubChan) >>= handleMsgByTopic topic
+getMqttMsgByTopic pubChan topic = do
+    message <- atomically (readTChan pubChan) >>= handleMsgByTopic topic
+    case message of
+        Just m -> return m
+        Nothing -> getMqttMsgByTopic pubChan topic
 
-handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO String
-handleMsgByTopic topic msg = do
+handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String)
+handleMsgByTopic topic msg =
     let (t,p,l) = extractMsg msg
-    if topic == t then
-        return $ read (show t) ++ " " ++ read (show p)
+    in if topic == t then
+        return $ Just $ read (show t) ++ " " ++ read (show p)
     else
-        return ""
+        return Nothing
 
 extractMsg :: MQTT.Message 'MQTT.PUBLISH -> (MQTT.Topic, ByteString, [Text])
 extractMsg msg =
