@@ -12,6 +12,8 @@ import Network.HTTP.Client.TLS (mkManagerSettings)
 
 import Data.String.Conversions (cs)
 import Control.Monad
+import Control.Concurrent
+import Control.Concurrent.STM
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as DBL (ByteString)
 -- Our file defining the types for JSON conversion
@@ -20,31 +22,33 @@ import WhiskJsonConversion
 main :: IO ()
 main = do
     putStrLn "Testing RESTful interaction"
-    let section = "activations"
-        actId = "171506fe8d1b49c4a5dbcb02550bc236"
-        action = "test-whisk"
-        url = apiEndpointUrl section actId
-        testInput = ActionInput {input = "ACCELEROMETER (123,456,789)"}
-    -- r <- asValue =<< get' (cs url)
-    -- r <- getActivation actId
-    putStrLn $ cs (encode testInput)
+    activationChan <- newTChanIO
 
 
     -- INVOKE ACTIONS USING
-    invId <- invokeAction action "ACCELEROMETER (214,1251,124)"
-    print invId
+    invId <- invokeAction action "ACCELEROMETER (100,200,300)"
+    invId' <- invokeAction action "ACCELEROMETER (600,700,800)"
+    invId'' <- invokeAction action "ACCELEROMETER (400,500,900)"
+
+    atomically $ writeTChan activationChan invId
+    atomically $ writeTChan activationChan invId'
+    atomically $ writeTChan activationChan invId''
 
 
+    -- THREAD TO POLL CHANNEL
+    _ <- forkIO $ forever $ atomically (readTChan activationChan) >>= print -- >>= HANDLE THE MESSAGE how?
     -- RETRIVE OUTPUT USING
     r <- getActivation invId
     print r
-
+    r <- getActivation invId'
+    print r
+    r <- getActivation invId''
+    print r
 
 
 
 -- Need to create the url that we are communicating with for each action
 -- Generic function which attaches parts of the request with optional parameters
-
 apiEndpointUrl' :: Text -> Text -> Text -> Text -> Text
 apiEndpointUrl' hostname ns section item =
     Data.Text.concat ["http://", hostname, "/api/v1/namespaces/",
@@ -70,9 +74,10 @@ getActivation :: Text -> IO [Float]
 getActivation item = do
     let url = apiEndpointUrl "activations" item
     r <-  getItem url
+    -- TODO: get responsebody, check statuscode of our get request
+    --       if not 200 then return catchable(? is this possible in haskell)
+    --       error
     return $ output . result . response $ r ^. responseBody
-
-
 
 
 ----- UTILITY FUNCTIONS -----
@@ -108,11 +113,13 @@ putItem :: (FromJSON a, ToJSON b) => Text -> b -> IO (Response a)
 putItem url obj = asJSON =<< put' (cs url) (toJSON obj)
 
 
-
 ----- CONFIGURATION OPTIONS -----
 -- definition of some default settings
 hostname :: Text
 hostname = "haskell-whisk.eastus.cloudapp.azure.com:10001"
+
+action :: Text
+action = "test-whisk"
 
 ns :: Text
 ns = "_"
