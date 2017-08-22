@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveGeneric, OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
+-- {-# LANGUAGE RecordWildCards #-}
 
 import System.Environment
 import Data.List.Split
@@ -13,13 +13,11 @@ import Data.Aeson.Types
 import GHC.Generics
 import GHC.Exts
 
-newtype ActionOutput = ActionOutput {
-    output :: [Float]
-} deriving (Generic, Show)
+newtype ActionOutput =
+    ActionOutput { output :: [Float] } deriving (Generic, Show)
 
-newtype ActionArg = ActionArg {
-    input :: String
-} deriving (Generic, Show)
+newtype ActionArg =
+    ActionArg { input :: String } deriving (Generic, Show)
 
 instance ToJSON ActionOutput where
     -- No need to provide a toJSON implementation.
@@ -28,31 +26,30 @@ instance ToJSON ActionOutput where
     -- the default version uses toJSON.
     toEncoding = genericToEncoding defaultOptions
 
-
-instance FromJSON ActionArg where
-    parseJSON = withObject "ActionArg" $ \o -> do
-        input <- o .: "input"
-        return ActionArg{..}
+instance FromJSON ActionArg
+-- TODO: find out if need a specific definition of FromJSON or can use
+--       default generic version
+-- instance FromJSON ActionArg where
+--     parseJSON = withObject "ActionArg" $ \o -> do
+--         input <- o .: "input"
+--         return ActionArg{..}
 --     -- No need to provide a parseJSON implementation.
 
 main :: IO ()
--- main = do
---     -- Grab command line args
---     args <- getArgs
---     print $ head args
---     -- No arguments
---     when (null args) $ error "No arguments passed in!"
---
---     -- Sort out string convert to JSON
---     let input = fetchInput args
---     case input of
---         Just i -> do
---             putStrLn ("input:" ++ i)
---             putStrLn $ fun i
---         Nothing -> putStrLn "Invalid Input: Failed to parse JSON"
-
 main = do
-    putStrLn $ fun "ACCELEROMETER (123,456,789)"
+    -- Grab command line args
+    args <- getArgs
+    print $ head args
+    -- No arguments
+    when (null args) $ error "No arguments passed in!"
+
+    -- Sort out string convert to JSON
+    let input = fetchInput args
+    case input of
+        Just i -> do
+            putStrLn ("input:" ++ i)
+            putStrLn $ fun i
+        Nothing -> putStrLn "Invalid Input: Failed to parse JSON"
 
 
 fun :: String -> String

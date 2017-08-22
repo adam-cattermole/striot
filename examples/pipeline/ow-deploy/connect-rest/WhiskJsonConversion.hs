@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
--- {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 module WhiskJsonConversion
@@ -16,7 +16,7 @@ import Data.Text
 import GHC.Generics (Generic)
 
 
------- ACTIVATIONS ------
+------ ACTIVATION ------
 data Activation =
     Activation { namespace    :: Text
                , name         :: Text
@@ -35,7 +35,7 @@ data Activation =
 instance FromJSON Activation
 
 
-
+------ ACTIVATION RESPONSE ------
 data ActivationResponse =
     ActivationResponse { status       :: Text
                        , success      :: Bool
@@ -44,15 +44,23 @@ data ActivationResponse =
 
 instance FromJSON ActivationResponse
 
+
+------ ACTIVATION RESULT ------
 newtype ActivationResult =
     ActivationResult { output :: [Float] } deriving (Show, Generic)
 
 instance FromJSON ActivationResult
 
-newtype ActivationInvocation =
-    ActivationInvocation { activationId :: Text } deriving (Show, Generic)
 
-instance FromJSON ActivationInvocation
+------ ACTIVATION INVOCATION ------
+newtype ActivationInvocation =
+    ActivationInvocation { invokeId :: Text } deriving (Show, Generic)
+
+instance FromJSON ActivationInvocation where
+    parseJSON = withObject "ActivationInvocation" $ \o -> do
+        invokeId <- o .: "activationId"
+        return ActivationInvocation{..}
+
 
 ------ ACTIONS ------
 newtype ActionInput =
@@ -60,8 +68,3 @@ newtype ActionInput =
 
 instance ToJSON ActionInput where
     toEncoding = genericToEncoding defaultOptions
-
--- "response": {
---   "result": {
---     "result": [200.0, 300.0, 400.0]
---   },
