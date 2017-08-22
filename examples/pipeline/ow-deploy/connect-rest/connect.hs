@@ -1,22 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 import Data.Text
 import Data.Aeson
--- Easy traversal of JSON data
 import Data.Aeson.Lens (key, nth)
 import Control.Lens
--- import Network.HTTP.Conduit
+
 import Network.Wreq
 import Network.Wreq.Types (Postable, Putable)
 import Network.Connection (TLSSettings (..))
 import Network.HTTP.Client.TLS (mkManagerSettings)
+
 import Data.String.Conversions (cs)
 import Control.Monad
--- import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as DBL (ByteString)
--- import Data.Attoparsec.Number
--- import Control.Applicative
--- import Control.Monad.Trans
+-- Our file defining the types for JSON conversion
 import WhiskJsonConversion
 
 main :: IO ()
@@ -30,16 +28,16 @@ main = do
     -- r <- asValue =<< get' (cs url)
     -- r <- getActivation actId
     putStrLn $ cs (encode testInput)
-    r <- invokeAction action "ACCELEROMETER (123,456,789)"
-    print $ r ^? responseBody
-    -- print $ r ^? responseBody . key "activationId"
 
-    -- r <- getActivation "c93ec2da45a4447ebb394016afe20cc3"
 
-    -- r <- getActivation' "c93ec2da45a4447ebb394016afe20cc3"
-    -- print r
-    -- print $ r ^? responseBody . key "response" . key "result"
-    -- print url
+    -- INVOKE ACTIONS USING
+    invId <- invokeAction action "ACCELEROMETER (214,1251,124)"
+    print invId
+
+
+    -- RETRIVE OUTPUT USING
+    r <- getActivation invId
+    print r
 
 
 
@@ -58,43 +56,21 @@ apiEndpointUrl = apiEndpointUrl' hostname ns
 
 -- Create functions for each of the wsk actions
 
--- createAction
-invokeAction :: Text -> Text -> IO (Response Value)
-invokeAction item value =
-    let url = apiEndpointUrl "actions" item
-        actInput = ActionInput {input = value}
-    in  postItem url actInput
-
--- TODO: Maybe change to this or no?
-invokeAction' :: Text -> Text -> IO Text
-invokeAction' item value = do
+-- create new activation
+invokeAction :: Text -> Text -> IO Text
+invokeAction item value = do
     let url = apiEndpointUrl "actions" item
         actInput = ActionInput {input = value}
     r <- postItem url actInput
-    return $ activationId (r ^. responseBody)
+    return $ invokeId (r ^. responseBody)
 
 
-getActivation :: Text -> IO (Response Value)
-getActivation item =
+-- Get the output from activation
+getActivation :: Text -> IO [Float]
+getActivation item = do
     let url = apiEndpointUrl "activations" item
-    in  getItem url
-
--- TODO: Maybe change to this or no?
--- getActivation' :: Text -> IO (Maybe Value)
--- getActivation' item = do
---     let url = apiEndpointUrl "activations" item
---     r <- getItem url
---     return $ r ^? responseBody . key "response" . key "result"
-
--- getActivation' :: Text -> Text
-getActivation' item = do
-    let url = apiEndpointUrl "activations" item
-    r <- getItem url
-    return $ output (r ^. responseBody)
-
--- Handle our particular data type
-
--- Convert to and from JSON, using aeson as done prior
+    r <-  getItem url
+    return $ output . result . response $ r ^. responseBody
 
 
 
