@@ -1,81 +1,110 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- {-# LANGUAGE RecordWildCards #-}
 
+import System.IO
 import System.Environment
+
 import Data.List.Split
+import qualified Data.Map as Map
 import Data.ByteString.Lazy (ByteString)
 import Data.Text.Lazy (Text, replace, pack)
+import Data.String.Conversions (cs)
 import qualified Data.Text.Lazy.Encoding as T
+
 import Control.Monad
+import Control.Exception
 
 import Data.Aeson
-import Data.Aeson.Types
-import GHC.Generics
-import GHC.Exts
 
-newtype ActionOutput =
-    ActionOutput { output :: [Float] } deriving (Generic, Show)
+-- import Data.Aeson.Types
+-- import GHC.Generics
+-- import GHC.Exts
+import HostJsonConversion
 
-newtype ActionArg =
-    ActionArg { input :: String } deriving (Generic, Show)
-
-instance ToJSON ActionOutput where
-    -- No need to provide a toJSON implementation.
-
-    -- For efficiency, we write a simple toEncoding implementation, as
-    -- the default version uses toJSON.
-    toEncoding = genericToEncoding defaultOptions
-
-instance FromJSON ActionArg
--- TODO: find out if need a specific definition of FromJSON or can use
---       default generic version
--- instance FromJSON ActionArg where
---     parseJSON = withObject "ActionArg" $ \o -> do
---         input <- o .: "input"
---         return ActionArg{..}
---     -- No need to provide a parseJSON implementation.
 
 main :: IO ()
 main = do
-    -- Grab command line args
-    args <- getArgs
+    -- Grab command line args and error if there are none
+    args <- getArgs'
     print $ head args
-    -- No arguments
     when (null args) $ error "No arguments passed in!"
 
-    -- Sort out string convert to JSON
-    let input = fetchInput args
-    case input of
-        Just i -> do
-            putStrLn ("input:" ++ i)
-            putStrLn $ fun i
-        Nothing -> putStrLn "Invalid Input: Failed to parse JSON"
+    -- Convert our string to our JSON FunctionInput
+    -- 'function':  determines the function to run
+    -- 'arg':       provides us some arguments for the desired function
+    let funcInput = fetchInput $ head args
+    case funcInput of
+        Just fi -> do
+            print funcInput
+            let xs@(fun:[sub]) = splitOn "." $ cs (function fi)
+            case fun of
+                "mqtt" -> do
+                    putStrLn "Perform mqtt function"
+                    case sub of
+                        "accel" -> putStrLn "Perform accel func"
+                        "magn" -> putStrLn "Perform magn func"
+                        "btn" -> putStrLn "Perform btn func"
+                        _ -> error $ wskErrorString sub xs fun sub
+                "util" -> do
+                    putStrLn "Perform util function"
+                    case sub of
+                        "busy-wait" -> putStrLn "Perform busy-wait func"
+                        _ -> error $ wskErrorString sub xs fun sub
+                _ -> error $ wskErrorString fun xs fun sub
+            -- Run required actions here
+        Nothing ->
+            error "wsk-error: Failed to convert input to JSON"
+    -- case input of
+        -- Just i -> do
+            -- putStrLn ("input:" ++ i)
+            -- putStrLn $ runOperation i
+        -- Nothing -> putStrLn "Invalid Input: Failed to parse JSON"
 
 
-fun :: String -> String
-fun [] = []
-fun s =
+-- Another attempt at flow control
+runFunction :: [String] -> String -> String -> String
+runFunction xs fun sub =
+    let x = Map.lookup fun validFunctions
+    in  case x of
+        Just v ->
+            if sub `elem` v then
+                "sub"
+            else
+                error $ wskErrorString sub xs fun sub
+        Nothing ->
+            error $ wskErrorString fun xs fun sub
+
+
+
+validFunctions :: Map.Map String [String]
+validFunctions = Map.fromList [("mqtt",["accel","magn","temp","btn"]),("util",["busy-wait"])]
+
+
+runOperation :: String -> String
+runOperation [] = []
+runOperation s =
     let accData = convertToList s
-        funOutput = ourOperation accData
+        funOutput = fun accData
     in  addJson funOutput
 
 -- The function to run on the list of floats
 
-ourOperation :: [Float] -> [Float]
-ourOperation = map (+100)
+fun :: [Float] -> [Float]
+fun = map (+100)
 
-getArgs' :: String
-getArgs' = "[\"{\\\"input\\\": \\\"ACCELEROMETER (-14.377,-9.398,-31.597)\\\"}\"]"
+getArgs' :: IO [String]
+getArgs' = return ["{\\\"arg\\\": [123, 300, 100], \\\"function\\\": \\\"util.busy-wait\\\"}\""]
 
--- Utility functions
+---- UTILITY FUNCTIONS ----
 
-fetchInput :: [String] -> Maybe String
+fetchInput :: String -> Maybe FunctionInput
 fetchInput arg =
-    let fixString = replace "}\"" "}" $ replace "\"{" "{" $ replace "\\" "" $ pack $ head arg
-        decodeArg = decode (T.encodeUtf8 fixString) :: Maybe ActionArg
-    in  case decodeArg of
-            Just aa -> Just (input aa)
-            Nothing -> Nothing
+    let fixByteString = T.encodeUtf8 $ fixInputString arg
+    in decode fixByteString :: Maybe FunctionInput
+    -- in  case decodeArg of
+            -- Just aa -> Just (input aa)
+            -- Nothing -> Nothing
+
 
 convertToList :: (Num a, Read a) => String -> [a]
 convertToList s =
@@ -83,8 +112,17 @@ convertToList s =
         i = splitOn "," d
     in map (read . removeElem "()") i
 
-convertToTuple  :: [Float] -> (Float,Float,Float)
-convertToTuple [x,y,z] = (x,y,z)
+wskErrorString :: String -> [String] -> String -> String -> String
+wskErrorString issue xs fun sub = "wsk-error: Invalid function provided. \n\
+                \  \"" ++ issue ++ "\" unknown in:\n\
+                \    (xs:" ++ show xs ++
+                    ",fun:" ++ fun ++
+                    ",sub:" ++ sub ++ ")"
+
+
+fixInputString :: String -> Text
+fixInputString s = replace "}\"" "}" . replace "\"{" "{" . replace "\\" "" $ pack s
+
 
 addJson :: [Float] -> String
 addJson output' = firstLast . removeElem "\\" $
