@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module WhiskJsonConversion
+module WhiskRest.WhiskJsonConversion
 ( Activation (..)
 , ActivationResponse (..)
 , ActivationResult (..)
