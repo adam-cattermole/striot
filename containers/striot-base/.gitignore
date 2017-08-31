@@ -2,7 +2,7 @@
 bin/
 lib/
 striot/
+whisk-rest/
 
 *.swo
 *.swp
-

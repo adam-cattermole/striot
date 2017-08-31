@@ -10,9 +10,19 @@ RUN cabal update && \
     split \
     stm \
     HTF \
-    mqtt-hs
+    mqtt-hs \
+    aeson \
+    string-conversions
 
 COPY striot /opt/striot
+COPY whisk-rest /opt/whisk-rest
+
+# install extras for whisk-rest
+RUN cabal install wreq
+
+# build sub-module whisk-rest
+WORKDIR /opt/whisk-rest
+RUN cabal build && cabal install
 
 WORKDIR /opt/striot
 RUN cabal build && \
