@@ -18,44 +18,21 @@ import Network.Connection (TLSSettings (..))
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.HTTP.Client(HttpException)
 
-import Data.String.Conversions (cs)
 import Control.Monad
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
+
+import Data.String.Conversions (cs)
 import Data.ByteString (ByteString)
+import qualified Data.Text.Lazy.Encoding as T
 import qualified Data.ByteString.Lazy as DBL (ByteString)
 
 import System.IO
 -- Our file defining the types for JSON conversion
 import WhiskRest.WhiskJsonConversion
+-- Configuration parameters
 import qualified WhiskRest.WhiskConfig as WC
-
--- main :: IO ()
--- main = do
---     putStrLn "Testing RESTful interaction"
---     activationChan <- newTChanIO
---
---
---     -- INVOKE ACTIONS USING
---     invId <- invokeAction "ACCELEROMETER (100,200,300)"
---     invId' <- invokeAction "ACCELEROMETER (600,700,800)"
---     invId'' <- invokeAction "ACCELEROMETER (400,500,900)"
---
---     atomically $ writeTChan activationChan invId
---     atomically $ writeTChan activationChan invId'
---     atomically $ writeTChan activationChan invId''
---
---
---     -- THREAD TO POLL CHANNEL
---     _ <- forkIO $ forever $ atomically (readTChan activationChan) >>= print -- >>= HANDLE THE MESSAGE how?
---     -- RETRIVE OUTPUT USING
---     r <- getActivation invId
---     print r
---     r <- getActivation invId'
---     print r
---     r <- getActivation invId''
---     print r
 
 
 -- Need to create the url that we are communicating with for each action
@@ -75,25 +52,37 @@ apiEndpointUrl = apiEndpointUrl' WC.hostname WC.namespace
 invokeAction' :: Text -> Text -> IO Text
 invokeAction' item value = do
     let url = apiEndpointUrl "actions" item
-        actInput = ActionInput {input = value}
-    r <- postItem url actInput
-    return $ invokeId (r ^. responseBody)
+        decoded = decode . T.encodeUtf8 . cs . fixInputString $ value :: Maybe FunctionInput
+    case decoded of
+        Just fi -> do
+            r <- postItem url fi
+            return $ invokeId (r ^. responseBody)
+        -- Nothing -> error "wsk-error: Failed to decode FunctionInput (value:" ++ cs value ++")"
+        -- actInput = ActionInput {input = value}
+    -- r <- postItem url actInput
+    -- return $ invokeId (r ^. responseBody)
 
 invokeAction :: Text -> IO Text
 invokeAction = invokeAction' WC.action
 
 
 -- Get the output from activation
-getActivation' :: Text -> IO [Float]
+getActivation' :: Text -> IO ActionOutputType
 getActivation' item = do
     let url = apiEndpointUrl "activations" item
-    r <-  getItem url
-    return $ output . result . response $ r ^. responseBody
+    getActivationType url
+
+
+getActivationType :: Text -> IO ActionOutputType
+getActivationType url = do
+    r <- getItem url
+    return $ result . response $ r ^. responseBody
+
 
 -- Recursively call get activation' and catch exception until out of retries
 -- threadDelay is set to 1 second (at least) between retries. Once out of retries
 -- exception is thrown
-getActivationRetry :: Int -> Text -> IO [Float]
+getActivationRetry :: Int -> Text -> IO ActionOutputType
 getActivationRetry n item =
     catch  (getActivation' item)
                 (\e -> do
@@ -106,7 +95,7 @@ getActivationRetry n item =
 
 
 -- The default implementation runs through our function with 0 retries
-getActivation :: Text -> IO [Float]
+getActivation :: Text -> IO ActionOutputType
 getActivation = getActivationRetry 0
 
 
@@ -143,24 +132,5 @@ putItem :: (FromJSON a, ToJSON b) => Text -> b -> IO (Response a)
 putItem url obj = asJSON =<< put' (cs url) (toJSON obj)
 
 
--- ----- CONFIGURATION OPTIONS -----
--- -- definition of some default settings
--- hostname :: Text
--- hostname = "haskell-whisk.eastus.cloudapp.azure.com:10001"
---
--- action :: Text
--- action = "test-whisk"
---
--- ns :: Text
--- ns = "_"
---
--- -- definition of some basic user credentials
--- user :: ByteString
--- user = "23bc46b1-71f6-4ed5-8c54-816aa4f8c502"
---
--- pass :: ByteString
--- pass = "123zO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP"
-
-
--- May be of use
--- https://charlieharvey.org.uk/page/haskell_servant_rest_apis_as_types
+fixInputString :: Text -> Text
+fixInputString = replace "}\"" "}" . replace "\"{" "{" . replace "\\" ""
