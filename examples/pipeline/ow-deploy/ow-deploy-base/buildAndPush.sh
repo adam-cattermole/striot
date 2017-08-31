@@ -10,6 +10,12 @@ IMAGE_NAME="adamcattermole/whisk-haskell-base"
 
 echo "Using $IMAGE_NAME as the image name"
 
+echo "Copying whisk-rest"
+mkdir -p whisk-rest/
+cp -R ../../../../src/whisk-rest/LICENSE whisk-rest/
+cp -R ../../../../src/whisk-rest/whisk-rest.cabal whisk-rest/
+cp -R ../../../../src/whisk-rest/src whisk-rest/
+
 # Make the docker image
 docker build -t $IMAGE_NAME .
 if [ $? -ne 0 ]; then
