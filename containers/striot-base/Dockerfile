@@ -4,10 +4,18 @@ FROM haskell:8.0.1
 RUN apt-get update && apt-get upgrade -y
 
 # Install the network stack from Cabal as this isn't part of the core
-RUN cabal update
-RUN cabal install network split stm mqtt-hs
+RUN cabal update && \
+    cabal install network split stm mqtt-hs aeson string-conversions
 
 COPY striot /opt/striot
+COPY whisk-rest /opt/whisk-rest
+
+# install extras for whisk-rest
+RUN cabal install wreq
+
+# build sub-module whisk-rest
+WORKDIR /opt/whisk-rest
+RUN cabal build && cabal install
 
 WORKDIR /opt/striot
 RUN cabal build && cabal install
