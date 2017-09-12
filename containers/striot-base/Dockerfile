@@ -7,15 +7,16 @@ RUN apt-get update && apt-get upgrade -y
 RUN cabal update && \
     cabal install network split stm mqtt-hs aeson string-conversions
 
-COPY striot /opt/striot
-COPY whisk-rest /opt/whisk-rest
-
+# COPY striot /opt/striot
+# COPY whisk-rest /opt/whisk-rest
 # install extras for whisk-rest
 RUN cabal install wreq
 
 # build sub-module whisk-rest
+COPY whisk-rest /opt/whisk-rest
 WORKDIR /opt/whisk-rest
 RUN cabal build && cabal install
 
+COPY striot /opt/striot
 WORKDIR /opt/striot
 RUN cabal build && cabal install

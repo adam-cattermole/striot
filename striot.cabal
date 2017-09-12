@@ -19,6 +19,6 @@ library
   exposed-modules:     Striot.FunctionalIoTtypes, Striot.FunctionalProcessing, Striot.Nodes
   -- other-modules:
   -- other-extensions:
-  build-depends:       base >=4.9 && <4.10, containers >=0.5 && <0.6, split >=0.2 && <0.3, time >=1.6 && <1.7, network >=2.6 && <2.7, stm >=2.4 && <2.5, mqtt-hs >=1.0.0, text >=1.2.2.1, bytestring >=0.10.8.1, aeson >=1.2.1.0, string-conversions >=0.4.0.1, whisk-rest >= 0.1.0.0
+  build-depends:       base >=4.9 && <4.10, containers >=0.5 && <0.6, split >=0.2 && <0.3, time >=1.6 && <1.7, network >=2.6 && <2.7, stm >=2.4 && <2.5, mqtt-hs >=1.0.0, text >=1.2.2.1, bytestring >=0.10.8.1, aeson >=1.2.1.0, string-conversions >=0.4.0.1, whisk-rest >= 0.1.0.1
   hs-source-dirs:      src
   default-language:    Haskell2010
