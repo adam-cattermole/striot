@@ -9,9 +9,16 @@ import Striot.Nodes
 import Network
 
 import qualified Network.MQTT as MQTT
+
 import Data.Text (Text)
 import Data.ByteString (ByteString)
+import Data.String.Conversions (cs)
+import Data.List.Split
+import Data.Aeson
+
 import Control.Monad(when)
+
+import WhiskRest.WhiskJsonConversion
 
 portNum  = 9002::PortNumber
 hostName = "haskellclient2"::HostName
@@ -66,7 +73,7 @@ getMqttMsg pubChan = atomically (readTChan pubChan) >>= handleMsg
 handleMsg :: MQTT.Message 'MQTT.PUBLISH -> IO String
 handleMsg msg =
     let (t,p,l) = extractMsg msg
-    in return $ read (show t) ++ " " ++ read (show p)
+    in return $ outputString t p
 
 getMqttMsgByTopic :: TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO String
 getMqttMsgByTopic pubChan topic = do
@@ -79,7 +86,7 @@ handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String
 handleMsgByTopic topic msg =
     let (t,p,l) = extractMsg msg
     in if topic == t then
-        return $ Just $ read (show t) ++ " " ++ read (show p)
+        return $ Just $ outputString t p
     else
         return Nothing
 
@@ -89,3 +96,36 @@ extractMsg msg =
         p = MQTT.payload $ MQTT.body msg
         l = MQTT.getLevels t
     in (t,p,l)
+
+
+---- HELPER FUNCTIONS ----
+
+outputString :: MQTT.Topic -> ByteString -> String
+outputString t p =
+    let funcName = extractFuncName t
+        param = extractFloatList p
+    in  fixOutputString FunctionInput {function = cs funcName,
+                                       arg      = param}
+
+fixOutputString :: (ToJSON a) => a -> String
+fixOutputString = firstLast . removeElem "\\" . show . encode
+
+extractFuncName :: MQTT.Topic -> String
+extractFuncName = (++) "mqtt." . read . show
+
+extractFloatList :: ByteString -> [Float]
+extractFloatList bs =
+    let x = convertToList (read (show bs))
+    in  map read x
+
+convertToList :: String -> [String]
+convertToList s =
+    let l = splitOn "," s
+    in  map (removeElem "[]") l
+
+firstLast :: [a] -> [a]
+firstLast xs@(_:_) = tail (init xs)
+firstLast _ = []
+
+removeElem :: (Eq a) => [a] -> [a] -> [a]
+removeElem repl = filter (not . (`elem` repl))

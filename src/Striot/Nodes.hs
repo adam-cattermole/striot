@@ -1,6 +1,7 @@
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
+                    , nodeLinkWhisk
                     , nodeLink2
                     , nodeSource
                     ) where
