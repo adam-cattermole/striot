@@ -15,7 +15,7 @@ main :: IO ()
 main = do
     podName <- getEnv "HOSTNAME"
     connectHost <- getEnv "HASKELL_SERVER_SERVICE_HOST"
-    nodeLink (streamGraph1 podName)  listenPort connectHost connectPort
+    nodeLink (streamGraph1 podName) listenPort connectHost connectPort
 
-streamGraph1 :: Stream String -> String -> Stream String
-streamGraph1 stream s = streamMap (++) s
+streamGraph1 :: String -> Stream String -> Stream String
+streamGraph1 s = streamMap (s ++)
