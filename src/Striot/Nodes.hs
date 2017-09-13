@@ -27,6 +27,9 @@ import Data.ByteString (ByteString)
 import Control.Monad(when)
 import Control.Concurrent.STM
 import System.Exit (exitFailure)
+import Data.String.Conversions (cs)
+import Data.List.Split
+import Data.Aeson
 
 nodeSink :: Read alpha => Show beta => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> IO ()
 nodeSink streamGraph iofn portNumInput1 = withSocketsDo $ do
