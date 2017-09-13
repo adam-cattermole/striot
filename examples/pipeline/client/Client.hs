@@ -59,40 +59,8 @@ main = do
         terminated <- MQTT.run conf
         print terminated
 
-    -- atomically (readTChan pubChan)
-    threadDelay (1 * 1000 * 1000)
-    nodeSource (getMqttMsgByTopic pubChan accelT) streamGraph2 hostName portNum -- processes source before sending it to another node
-    -- nodeSource (getMqttMsg pubChan) streamGraph2 hostName portNum -- processes source before sending it to another node
+main :: IO ()
+main = nodeMqttByTopicSource mqttHost topics accelT streamGraph2 hostName portNum
 
 streamGraph2 :: Stream String -> Stream String
 streamGraph2 = streamMap Prelude.id
-
-getMqttMsg :: TChan (MQTT.Message 'MQTT.PUBLISH) -> IO String
-getMqttMsg pubChan = atomically (readTChan pubChan) >>= handleMsg
-
-handleMsg :: MQTT.Message 'MQTT.PUBLISH -> IO String
-handleMsg msg =
-    let (t,p,l) = extractMsg msg
-    in return $ read (show t) ++ " " ++ read (show p)
-
-getMqttMsgByTopic :: TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO String
-getMqttMsgByTopic pubChan topic = do
-    message <- atomically (readTChan pubChan) >>= handleMsgByTopic topic
-    case message of
-        Just m -> return m
-        Nothing -> getMqttMsgByTopic pubChan topic
-
-handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String)
-handleMsgByTopic topic msg =
-    let (t,p,l) = extractMsg msg
-    in if topic == t then
-        return $ Just $ read (show t) ++ " " ++ read (show p)
-    else
-        return Nothing
-
-extractMsg :: MQTT.Message 'MQTT.PUBLISH -> (MQTT.Topic, ByteString, [Text])
-extractMsg msg =
-    let t = MQTT.topic $ MQTT.body msg
-        p = MQTT.payload $ MQTT.body msg
-        l = MQTT.getLevels t
-    in (t,p,l)

@@ -1,8 +1,11 @@
+{-# Language DataKinds, OverloadedStrings #-}
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
                     , nodeLink2
                     , nodeSource
+                    , nodeMqttSource
+                    , nodeMqttByTopicSource
                     ) where
 
 import           Control.Concurrent
