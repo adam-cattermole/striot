@@ -55,7 +55,7 @@ main = do
 
     -- atomically (readTChan pubChan)
     threadDelay (1 * 1000 * 1000)
-    nodeSource (getMqttMsgByTopic pubChan btnT) streamGraph2 hostName portNum -- processes source before sending it to another node
+    nodeSource (getMqttMsgByTopic pubChan accelT) streamGraph2 hostName portNum -- processes source before sending it to another node
     -- nodeSource (getMqttMsg pubChan) streamGraph2 hostName portNum -- processes source before sending it to another node
 
 streamGraph2 :: Stream String -> Stream String
