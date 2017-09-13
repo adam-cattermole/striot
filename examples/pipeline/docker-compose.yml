@@ -19,3 +19,5 @@ haskellclient:
   # image: sjwoodman/haskell-client
   links:
     - haskellclient2
+  stdin_open: true
+  tty: true

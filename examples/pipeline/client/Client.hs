@@ -22,6 +22,7 @@ import WhiskRest.WhiskJsonConversion
 
 portNum  = 9002::PortNumber
 hostName = "haskellclient2"::HostName
+mqttHost = "mqtt-broker.eastus.cloudapp.azure.com"::HostName
 
 accelT, btnT, tempT, magnT :: MQTT.Topic
 accelT = "ACCELEROMETER"
@@ -31,38 +32,11 @@ magnT = "MAGNETOMETER/+"
 -- + one level deep wildcard
 -- * all levels below wildcard
 
+topics :: [MQTT.Topic]
+topics = [accelT,btnT,tempT,magnT]
+
 main :: IO ()
-main = do
-    cmds <- MQTT.mkCommands
-    pubChan <- newTChanIO
-    let conf = (MQTT.defaultConfig cmds pubChan)
-                  {
-                  --MQTT.cHost = "10.68.144.122"
-                  MQTT.cHost = "mqtt-broker.eastus.cloudapp.azure.com"
-                  , MQTT.cUsername = Just "mqtt-hs"
-                  }
-
-    -- Attempt to subscribe to individual topics
-    _ <- forkIO $ do
-        qosGranted <- MQTT.subscribe conf [(accelT, MQTT.Handshake)
-                                          ,(btnT, MQTT.Handshake)
-                                          ,(tempT, MQTT.Handshake)
-                                          ,(magnT, MQTT.Handshake)]
-        case qosGranted of
-          [MQTT.Handshake, MQTT.Handshake, MQTT.Handshake, MQTT.Handshake] -> putStrLn "Topic Handshake Success!" -- forever $ atomically (readTChan pubChan) >>= handleMsg
-          _ -> do
-            hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
-            exitFailure
-
-      -- this will throw IOExceptions
-    _ <- forkIO $ do
-        terminated <- MQTT.run conf
-        print terminated
-
-    -- atomically (readTChan pubChan)
-    threadDelay (1 * 1000 * 1000)
-    nodeSource (getMqttMsgByTopic pubChan accelT) streamGraph2 hostName portNum -- processes source before sending it to another node
-    -- nodeSource (getMqttMsg pubChan) streamGraph2 hostName portNum -- processes source before sending it to another node
+main = nodeMqttByTopicSource mqttHost topics accelT streamGraph2 hostName portNum
 
 streamGraph2 :: Stream String -> Stream String
 streamGraph2 = streamMap Prelude.id
