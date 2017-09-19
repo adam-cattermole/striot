@@ -48,8 +48,6 @@ nodeLinkWhisk' sock host port = do
     -- whiskRunner eventStream activationChan outputChan host port  -- process stream
     result <- whiskRunner eventStream activationChan outputChan
     sendStream result host port
-    -- Will anything run after that or are we stuck in recursion?
-
 
 
 whiskRunner :: Stream Text -> TChan Text -> TChan ActionOutputType -> IO (Stream ActionOutputType)
@@ -73,12 +71,10 @@ whiskRunner (e@(E i t v):r) activationChan outputChan = do
                 whiskRunner r activationChan outputChan
 
 
-
 handleActivations :: TChan Text -> TChan ActionOutputType -> IO ()
 handleActivations activationChan outputChan = do
     actId <- atomically $ readTChan activationChan
     actOutput <- getActivationRetry 60 actId
-
     atomically $ writeTChan outputChan actOutput
     -- stream <- readResultFromWhisk (getActivationRetry 60 actId)
 
