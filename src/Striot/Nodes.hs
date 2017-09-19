@@ -45,7 +45,8 @@ nodeLinkWhisk' sock host port = do
     stream <- readListFromSocket sock   -- read stream of Strings from socket
     _ <- forkIO $ forever $ handleActivations activationChan outputChan
     let eventStream = map read stream
-    -- whiskRunner eventStream activationChan outputChan host port  -- process stream
+    -- Result is generated and continually recurses while sendStream recursively
+    -- sends the output onwards
     result <- whiskRunner eventStream activationChan outputChan
     sendStream result host port
 
