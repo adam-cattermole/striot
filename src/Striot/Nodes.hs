@@ -36,7 +36,64 @@ nodeSink streamGraph iofn portNumInput1 = withSocketsDo $ do
     sock <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting server ..."
     hFlush stdout
-    nodeSink' sock streamGraph iofn
+    nodeLinkWhisk' sockIn hostNameOutput portNumOutput
+
+nodeLinkWhisk' :: Socket -> HostName -> PortNumber -> IO ()
+nodeLinkWhisk' sock host port = do
+    activationChan <- newTChanIO
+    outputChan <- newTChanIO
+    stream <- readListFromSocket sock   -- read stream of Strings from socket
+    _ <- forkIO $ forever $ handleActivations activationChan outputChan
+    let eventStream = map read stream
+    -- whiskRunner eventStream activationChan outputChan host port  -- process stream
+    result <- whiskRunner eventStream activationChan outputChan
+    sendStream result host port
+    -- Will anything run after that or are we stuck in recursion?
+
+
+
+whiskRunner :: Stream Text -> TChan Text -> TChan ActionOutputType -> IO (Stream ActionOutputType)
+whiskRunner (e@(E i t v):r) activationChan outputChan = do
+    -- Activate and add to TChan
+    actId <- invokeAction v
+    atomically $ writeTChan activationChan actId
+
+    -- Check if we have output
+    pay <- atomically $ tryReadTChan outputChan
+    go pay
+    where
+        go pay =
+            if isJust pay then do
+                let (Just payload) = pay
+                now <- getCurrentTime
+                let msg = E 0 now payload
+                wr <- System.IO.Unsafe.unsafeInterleaveIO (whiskRunner r activationChan outputChan)
+                return (msg:wr)
+            else
+                whiskRunner r activationChan outputChan
+
+
+
+handleActivations :: TChan Text -> TChan ActionOutputType -> IO ()
+handleActivations activationChan outputChan = do
+    actId <- atomically $ readTChan activationChan
+    actOutput <- getActivationRetry 60 actId
+
+    atomically $ writeTChan outputChan actOutput
+    -- stream <- readResultFromWhisk (getActivationRetry 60 actId)
+
+    -- print [show $ floatData actOutput]
+    -- print (map read [show $ floatData actOutput] :: Stream Text)
+    -- let result = stream
+    -- sendStream result host port         -- to send stream to another node
+
+readResultFromWhisk :: HostName -> PortNumber -> Maybe ActionOutputType  -> IO ()
+readResultFromWhisk host port (Just actType) = do
+    now <- getCurrentTime
+    let msg = E 0 now actType
+    sendStream [msg] host port
+sendResultFromWhisk host port _ = return ()
+
 
 
 nodeSink' :: (Read alpha, Show beta) => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
@@ -218,7 +275,7 @@ readListFromSource = go 0
               now     <- getCurrentTime
               payload <- pay
               return (E x now payload)
-              
+
 
 readListFromSocket :: Socket -> IO [String]
 readListFromSocket sock = do

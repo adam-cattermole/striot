@@ -5,13 +5,15 @@ import Striot.FunctionalIoTtypes
 import Striot.Nodes
 import Network
 
+import WhiskRest.WhiskJsonConversion
+
 listenPort = 9001 :: PortNumber
 
 main :: IO ()
 main = nodeSink streamGraph1 printStream listenPort
 
-streamGraph1 :: Stream String -> Stream [String]
-streamGraph1 s = streamWindow (chop 1) $ streamMap (\st-> "Incoming Message at Server: " ++ st) s
+streamGraph1 :: Stream ActionOutputType -> Stream [String]
+streamGraph1 s = streamWindow (chop 1) $ streamMap (\st-> "Incoming Message at Server: " ++ show (floatData st)) s
 
 printStream:: Show alpha => Stream alpha -> IO ()
 printStream (h:t) = do
