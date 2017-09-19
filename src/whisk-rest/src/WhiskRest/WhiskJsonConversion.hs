@@ -90,7 +90,7 @@ instance ToJSON ActionInput where
 -- a 'tag' key is added to the JSON to represent which constructor is used
 data ActionOutputType = ActionOutputBool { boolData :: Bool} |
                   ActionOutputFloatList { floatData :: [Float]}
-                  deriving (Generic, Show)
+                  deriving (Generic, Show, Read)
 
 instance ToJSON ActionOutputType where
     toEncoding = genericToEncoding defaultOptions

@@ -88,29 +88,26 @@ whiskRunner (e@(E i t v):r) activationChan outputChan = do
     atomically $ writeTChan activationChan actId
 
     -- Check if we have output
-    -- sendResultFromWhisk host port =<< atomically (tryReadTChan outputChan)
-    x <- atomically $ tryReadTChan outputChan
-    if isJust x then do
-        let (Just actType) = x
-        now <- getCurrentTime
-        let msg = E 0 now actType
-        test <- whiskRunner r activationChan outputChan
-        return (msg:test)
-    else
-        whiskRunner r activationChan outputChan
+    pay <- atomically $ tryReadTChan outputChan
+    go pay
+    where
+        go pay =
+            if isJust pay then do
+                let (Just payload) = pay
+                now <- getCurrentTime
+                let msg = E 0 now payload
+                wr <- System.IO.Unsafe.unsafeInterleaveIO (whiskRunner r activationChan outputChan)
+                return (msg:wr)
+            else
+                whiskRunner r activationChan outputChan
 
-
-
-    -- whiskRunner r activationChan outputChan host port
-    -- return (msg: whiskRunner r..)
 
 
 handleActivations :: TChan Text -> TChan ActionOutputType -> IO ()
 handleActivations activationChan outputChan = do
     actId <- atomically $ readTChan activationChan
-    print actId
     actOutput <- getActivationRetry 60 actId
-    print actOutput
+
     atomically $ writeTChan outputChan actOutput
     -- stream <- readResultFromWhisk (getActivationRetry 60 actId)
 
