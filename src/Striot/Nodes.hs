@@ -77,8 +77,6 @@ nodeLinkWhisk' sock host port = do
     -- whiskRunner eventStream activationChan outputChan host port  -- process stream
     result <- whiskRunner eventStream activationChan outputChan
     sendStream result host port
-    -- Will anything run after that or are we stuck in recursion?
-
 
 
 whiskRunner :: Stream Text -> TChan Text -> TChan ActionOutputType -> IO (Stream ActionOutputType)
@@ -102,38 +100,11 @@ whiskRunner (e@(E i t v):r) activationChan outputChan = do
                 whiskRunner r activationChan outputChan
 
 
-
 handleActivations :: TChan Text -> TChan ActionOutputType -> IO ()
 handleActivations activationChan outputChan = do
     actId <- atomically $ readTChan activationChan
     actOutput <- getActivationRetry 60 actId
-
     atomically $ writeTChan outputChan actOutput
-    -- stream <- readResultFromWhisk (getActivationRetry 60 actId)
-
-    -- print [show $ floatData actOutput]
-    -- print (map read [show $ floatData actOutput] :: Stream Text)
-    -- let result = stream
-    -- sendStream result host port         -- to send stream to another node
-
-readResultFromWhisk :: HostName -> PortNumber -> Maybe ActionOutputType  -> IO ()
-readResultFromWhisk host port (Just actType) = do
-    now <- getCurrentTime
-    let msg = E 0 now actType
-    sendStream [msg] host port
-sendResultFromWhisk host port _ = return ()
-
-
-
--- readListFromSource :: IO alpha -> IO (Stream alpha)
--- readListFromSource pay = do {l <- go pay 0; return l}
---   where
---     go pay i  = do
---                    now <- getCurrentTime
---                    payload <- pay
---                    let msg = E i now payload
---                    r <- System.IO.Unsafe.unsafeInterleaveIO (go pay (i+1)) -- at some point this will overflow
---                    return (msg:r)
 
 
 ----- END: WHISK LINK -----
