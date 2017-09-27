@@ -24,7 +24,9 @@ import           System.IO.Unsafe
 import qualified Network.MQTT as MQTT
 import Data.Text (Text)
 import Data.ByteString (ByteString)
-import Control.Monad(when)
+import Data.ByteString.Lazy (unpack)
+import Data.Char (chr)
+import Control.Monad
 import Control.Concurrent.STM
 import System.Exit (exitFailure)
 import Data.String.Conversions (cs)
@@ -51,11 +53,11 @@ nodeLinkWhisk' sock host port = do
     sendStream result host port
 
 
-whiskRunner :: Stream Text -> TChan Text -> TChan ActionOutputType -> IO (Stream ActionOutputType)
+whiskRunner :: Stream Text -> TChan (Event Text) -> TChan (Event t) -> IO (Stream t)
 whiskRunner (e@(E i t v):r) activationChan outputChan = do
     -- Activate and add to TChan
     actId <- invokeAction v
-    atomically $ writeTChan activationChan actId
+    atomically $ writeTChan activationChan (E i t actId)
 
     -- Check if we have output
     pay <- atomically $ tryReadTChan outputChan
@@ -63,21 +65,18 @@ whiskRunner (e@(E i t v):r) activationChan outputChan = do
     where
         go pay =
             if isJust pay then do
-                let (Just payload) = pay
-                now <- getCurrentTime
-                let msg = E 0 now payload
+                let (Just msg) = pay
                 wr <- System.IO.Unsafe.unsafeInterleaveIO (whiskRunner r activationChan outputChan)
                 return (msg:wr)
             else
                 whiskRunner r activationChan outputChan
 
 
-handleActivations :: TChan Text -> TChan ActionOutputType -> IO ()
+handleActivations :: TChan (Event Text) -> TChan (Event ActionOutputType) -> IO ()
 handleActivations activationChan outputChan = do
-    actId <- atomically $ readTChan activationChan
+    (E i t actId) <- atomically $ readTChan activationChan
     actOutput <- getActivationRetry 60 actId
-    atomically $ writeTChan outputChan actOutput
-    -- stream <- readResultFromWhisk (getActivationRetry 60 actId)
+    atomically $ writeTChan outputChan (E i t actOutput)
 
     -- print [show $ floatData actOutput]
     -- print (map read [show $ floatData actOutput] :: Stream Text)
@@ -258,7 +257,30 @@ extractMsg msg =
 
 ----- END: MQTT SOURCE -----
 
---- UTILITY FUNCTIONS ---
+---- HELPER FUNCTIONS ----
+
+outputString :: MQTT.Topic -> ByteString -> String
+outputString t p =
+    let funcName = extractFuncName t
+        param = extractFloatList p
+    in  fixOutputString FunctionInput {function = cs funcName,
+                                       arg      = param}
+
+fixOutputString :: (ToJSON a) => a -> String
+fixOutputString = map (chr . fromEnum) . unpack . encode
+
+extractFuncName :: MQTT.Topic -> String
+extractFuncName = (++) "mqtt." . read . show
+
+extractFloatList :: ByteString -> [Float]
+extractFloatList bs =
+    let x = convertToList (read (show bs))
+    in  map read x
+
+convertToList :: String -> [String]
+convertToList s =
+    let l = splitOn "," s
+    in  map (removeElem "[]") l
 
 readListFromSource :: IO alpha -> IO (Stream alpha)
 readListFromSource = go 0
