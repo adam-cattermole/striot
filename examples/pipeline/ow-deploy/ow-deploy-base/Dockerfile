@@ -21,7 +21,8 @@ RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/main >> /etc/apk/repositories
 
 
 ### Install project specific Haskell dependencies and compile source file(s)
-RUN cd /action; cabal install $(cat requirements.txt)
+RUN cd /action; \
+  cabal update && cabal install $(cat requirements.txt)
 
 ### Install the whisk-rest library
 COPY whisk-rest /opt/whisk-rest

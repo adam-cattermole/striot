@@ -22,7 +22,8 @@ RUN cabal install wreq
 # build sub-module whisk-rest
 COPY whisk-rest /opt/whisk-rest
 WORKDIR /opt/whisk-rest
-RUN cabal build && cabal install
+RUN cabal update && \
+  cabal build && cabal install
 
 COPY striot /opt/striot
 WORKDIR /opt/striot
