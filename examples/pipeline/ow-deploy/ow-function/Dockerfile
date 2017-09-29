@@ -5,7 +5,7 @@ ENV FLASK_PROXY_PORT 8080
 
 ### Add source file(s) and project config cabal
 ADD function.hs /action/function.hs
-ADD whisk-haskell-function.cabal /action/whisk-haskell-function.cabal
+# ADD whisk-haskell-function.cabal /action/whisk-haskell-function.cabal
 
 
 #### TODO: Do we need this? Surely if it's done in the base image we likely don't?
@@ -23,8 +23,8 @@ ADD whisk-haskell-function.cabal /action/whisk-haskell-function.cabal
 
 ### Install project specific Haskell dependencies and compile source file(s)
 RUN cd /action; \
-  cabal update && cabal install \
-  && ghc -o exec function.hs
+  # cabal update && cabal install \
+  ghc -o exec function.hs
   # && apk del .build-deps
 
 CMD ["/bin/bash", "-c", "cd actionProxy && python -u actionproxy.py"]

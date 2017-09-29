@@ -17,13 +17,13 @@ RUN cabal update && \
 # COPY striot /opt/striot
 # COPY whisk-rest /opt/whisk-rest
 # install extras for whisk-rest
-RUN cabal install wreq
+# RUN cabal install wreq
 
 # build sub-module whisk-rest
-COPY whisk-rest /opt/whisk-rest
-WORKDIR /opt/whisk-rest
-RUN cabal update && \
-  cabal build && cabal install
+# COPY whisk-rest /opt/whisk-rest
+# WORKDIR /opt/whisk-rest
+# RUN cabal update && \
+#   cabal build && cabal install
 
 COPY striot /opt/striot
 WORKDIR /opt/striot

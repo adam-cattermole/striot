@@ -10,11 +10,11 @@ IMAGE_NAME="adamcattermole/whisk-haskell-base"
 
 echo "Using $IMAGE_NAME as the image name"
 
-echo "Copying whisk-rest"
-mkdir -p whisk-rest/
-cp -R ../../../../src/whisk-rest/LICENSE whisk-rest/
-cp -R ../../../../src/whisk-rest/whisk-rest.cabal whisk-rest/
-cp -R ../../../../src/whisk-rest/src whisk-rest/
+echo "Copying Striot"
+mkdir -p striot/
+cp -R ../../../../license.txt striot/
+cp -R ../../../../striot.cabal striot/
+cp -R ../../../../src striot/
 
 # Make the docker image
 docker build -t $IMAGE_NAME .
