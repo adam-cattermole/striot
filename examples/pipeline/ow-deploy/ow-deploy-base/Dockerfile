@@ -24,15 +24,22 @@ RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/main >> /etc/apk/repositories
 # RUN cd /action; \
 #   cabal update && cabal install $(cat requirements.txt)
 
-### Install the whisk-rest library
-COPY striot /opt/striot
+# Copy these first
+COPY striot/striot.cabal /opt/striot/
+COPY striot/license.txt /opt/striot/
+
 WORKDIR /opt/striot
 
 RUN cabal update && \
     cabal install --only-dependencies
 
+# We copy the src after so that source code changes do not require
+# re-installation of dependencies. That only happens if we change the license or
+# cabal file
+COPY striot/src /opt/striot/src
+
 # For caching reasons
 RUN cabal update && \
     cabal build && cabal install
-    
+
 WORKDIR /

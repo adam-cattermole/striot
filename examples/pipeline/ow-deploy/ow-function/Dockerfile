@@ -3,10 +3,8 @@ FROM adamcattermole/whisk-haskell-base
 
 ENV FLASK_PROXY_PORT 8080
 
-### Add source file(s) and project config cabal
-ADD function.hs /action/function.hs
-# ADD whisk-haskell-function.cabal /action/whisk-haskell-function.cabal
-
+### Add source file(s)
+COPY src /action/
 
 #### TODO: Do we need this? Surely if it's done in the base image we likely don't?
 # ## Install all required dependencies and update them
@@ -23,8 +21,8 @@ ADD function.hs /action/function.hs
 
 ### Install project specific Haskell dependencies and compile source file(s)
 RUN cd /action; \
-  # cabal update && cabal install \
   ghc -o exec function.hs
+  # cabal update && cabal install \
   # && apk del .build-deps
 
 CMD ["/bin/bash", "-c", "cd actionProxy && python -u actionproxy.py"]

@@ -20,8 +20,8 @@ import Data.Time (getCurrentTime)
 --- FOR MQTT SOURCE
 import qualified Network.MQTT as MQTT
 import Data.Text (Text)
-import Data.ByteString (ByteString)
-import Data.ByteString.Lazy (unpack)
+import Data.ByteString (ByteString, unpack)
+-- import Data.ByteString.Lazy (ByteString, unpack)
 import Data.Char (chr)
 import Control.Monad
 import Control.Concurrent.STM
@@ -62,31 +62,32 @@ import Data.Maybe
 import WhiskRest.WhiskConnect
 import WhiskRest.WhiskJsonConversion
 
-nodeLinkWhisk :: PortNumber -> HostName -> PortNumber -> IO ()
-nodeLinkWhisk portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
+nodeLinkWhisk :: Read alpha => (Show beta, Read beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
+nodeLinkWhisk fn portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
     sockIn <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting (WHISK) link ..."
     hFlush stdout
-    nodeLinkWhisk' sockIn hostNameOutput portNumOutput
+    nodeLinkWhisk' sockIn fn hostNameOutput portNumOutput
 
-nodeLinkWhisk' :: Socket -> HostName -> PortNumber -> IO ()
-nodeLinkWhisk' sock host port = do
+nodeLinkWhisk' :: Read alpha => (Show beta, Read beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeLinkWhisk' sock fn host port = do
     activationChan <- newTChanIO
     outputChan <- newTChanIO
     stream <- readListFromSocket sock   -- read stream of Strings from socket
     _ <- forkIO $ forever $ handleActivations activationChan outputChan
     let eventStream = map read stream
+    let output = fn eventStream
     -- Result is generated and continually recurses while sendStream recursively
     -- sends the output onwards
-    result <- whiskRunner eventStream activationChan outputChan
+    result <- whiskRunner output activationChan outputChan
     sendStream result host port
 
 
-whiskRunner :: Stream Text -> TChan (Event Text) -> TChan (Event t) -> IO (Stream t)
-whiskRunner (e@(E i t v):r) activationChan outputChan = do
+whiskRunner :: (Show alpha, Read alpha) => Stream alpha -> TChan Text -> TChan (Event alpha) -> IO (Stream alpha)
+whiskRunner (e:r) activationChan outputChan = do
     -- Activate and add to TChan
-    actId <- invokeAction v
-    atomically $ writeTChan activationChan (E i t actId)
+    actId <- invokeAction e
+    atomically $ writeTChan activationChan actId
 
     -- Check if we have output
     pay <- atomically $ tryReadTChan outputChan
@@ -101,11 +102,11 @@ whiskRunner (e@(E i t v):r) activationChan outputChan = do
                 whiskRunner r activationChan outputChan
 
 
-handleActivations :: TChan (Event Text) -> TChan (Event ActionOutputType) -> IO ()
+handleActivations :: (Read alpha) => TChan Text -> TChan (Event alpha) -> IO ()
 handleActivations activationChan outputChan = do
-    (E i t actId) <- atomically $ readTChan activationChan
-    actOutput <- getActivationRetry 60 actId
-    atomically $ writeTChan outputChan (E i t actOutput)
+    actId <- atomically $ readTChan activationChan
+    eJson <- getActivationRetry 60 actId
+    atomically $ writeTChan outputChan (fromEventJson eJson)
 
 
 ----- END: WHISK LINK -----
@@ -147,7 +148,7 @@ nodeSink2' sock1 sock2 streamOps iofn = do
                                           iofn result
 
 readListFromSocket :: Socket -> IO [String]
-readListFromSocket sock = do {l <- go sock; return l}
+readListFromSocket = go --{l <- go sock; return l}
   where
     go sock   = do (handle, host, port) <- accept sock
                    eventMsg             <- hGetLine handle
@@ -214,7 +215,7 @@ nodeSource pay streamGraph host port = do
                                sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
 readListFromSource :: IO alpha -> IO (Stream alpha)
-readListFromSource pay = do {l <- go pay 0; return l}
+readListFromSource pay = go pay 0--{l <- go pay 0; return l}
   where
     go pay i  = do
                    now <- getCurrentTime
@@ -226,12 +227,12 @@ readListFromSource pay = do {l <- go pay 0; return l}
 
 ----- START: MQTT SOURCE -----
 
-nodeMqttSource :: Show beta => HostName -> [MQTT.Topic] -> (Stream String -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeMqttSource :: Read alpha => Show beta => HostName -> [MQTT.Topic] -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeMqttSource mqttHost topics fn host port = do
     pubChan <- setupMqtt topics mqttHost
     nodeSource (getMqttMsg pubChan) fn host port
 
-nodeMqttByTopicSource :: Show beta => HostName -> [MQTT.Topic] -> MQTT.Topic -> (Stream String -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeMqttByTopicSource :: Read alpha => Show beta => HostName -> [MQTT.Topic] -> MQTT.Topic -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeMqttByTopicSource mqttHost topics selectT fn host port = do
     pubChan <- setupMqtt topics mqttHost
     nodeSource (getMqttMsgByTopic pubChan selectT) fn host port
@@ -262,26 +263,28 @@ setupMqtt topics mqttHost = do
     threadDelay (1 * 1000 * 1000)
     return pubChan
 
-getMqttMsg :: TChan (MQTT.Message 'MQTT.PUBLISH) -> IO String
-getMqttMsg pubChan = atomically (readTChan pubChan) >>= handleMsg
+getMqttMsg :: Read alpha => TChan (MQTT.Message 'MQTT.PUBLISH) -> IO alpha
+getMqttMsg pubChan = do
+    message <- atomically (readTChan pubChan) >>= handleMsg
+    return $ read message
 
 handleMsg :: MQTT.Message 'MQTT.PUBLISH -> IO String
 handleMsg msg =
     let (t,p,l) = extractMsg msg
-    in return $ outputString t p
+    in return $ convertBsToString p
 
-getMqttMsgByTopic :: TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO String
+getMqttMsgByTopic :: Read alpha => TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO alpha
 getMqttMsgByTopic pubChan topic = do
     message <- atomically (readTChan pubChan) >>= handleMsgByTopic topic
     case message of
-        Just m -> return m
+        Just m -> return $ read m
         Nothing -> getMqttMsgByTopic pubChan topic
 
 handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String)
 handleMsgByTopic topic msg =
     let (t,p,l) = extractMsg msg
     in if topic == t then
-        return $ Just $ outputString t p
+        return $ Just $ convertBsToString p
     else
         return Nothing
 
@@ -295,15 +298,17 @@ extractMsg msg =
 
 ---- HELPER FUNCTIONS ----
 
-outputString :: MQTT.Topic -> ByteString -> String
-outputString t p =
-    let funcName = extractFuncName t
-        param = extractFloatList p
-    in  fixOutputString FunctionInput {function = cs funcName,
-                                       arg      = param}
+convertBsToString :: ByteString -> String
+convertBsToString = map (chr. fromEnum) . unpack
 
-fixOutputString :: (ToJSON a) => a -> String
-fixOutputString = map (chr . fromEnum) . unpack . encode
+-- outputString :: MQTT.Topic -> ByteString -> String
+-- outputString t p =
+--     let funcName = extractFuncName t
+--         param = extractFloatList p
+--     in  fixOutputString FunctionInput {function = cs funcName,
+--                                        arg      = param}
+-- fixOutputString :: (ToJSON a) => a -> String
+-- fixOutputString = convertBsToString . encode
 
 extractFuncName :: MQTT.Topic -> String
 extractFuncName = (++) "mqtt." . read . show

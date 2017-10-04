@@ -39,5 +39,5 @@ topics = [accelT,btnT,tempT,magnT]
 main :: IO ()
 main = nodeMqttByTopicSource mqttHost topics accelT streamGraph2 hostName portNum
 
-streamGraph2 :: Stream String -> Stream String
+streamGraph2 :: (Floating alpha) => Stream [alpha] -> Stream [alpha]
 streamGraph2 = streamMap Prelude.id

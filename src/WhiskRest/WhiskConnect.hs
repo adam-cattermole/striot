@@ -31,6 +31,7 @@ import qualified Data.ByteString.Lazy as DBL (ByteString)
 import System.IO
 -- Our file defining the types for JSON conversion
 import WhiskRest.WhiskJsonConversion
+import Striot.FunctionalIoTtypes
 -- Configuration parameters
 import qualified WhiskRest.WhiskConfig as WC
 
@@ -49,31 +50,32 @@ apiEndpointUrl = apiEndpointUrl' WC.hostname WC.namespace
 -- Create functions for each of the wsk actions
 
 -- create new activation
-invokeAction' :: Text -> Text -> IO Text
-invokeAction' item value = do
+invokeAction' :: (Show alpha) => Text -> Event alpha -> IO Text
+invokeAction' item event = do
     let url = apiEndpointUrl "actions" item
-        decoded = decode . T.encodeUtf8 . cs . fixInputString $ value :: Maybe FunctionInput
-    case decoded of
-        Just fi -> do
-            r <- postItem url fi
-            return $ invokeId (r ^. responseBody)
+        eJson = toEventJson event
+        -- decoded = decode . T.encodeUtf8 . cs . fixInputString $ value :: Maybe FunctionInput
+    -- case decoded of
+        -- Just fi -> do
+    r <- postItem url eJson
+    return $ invokeId (r ^. responseBody)
         -- Nothing -> error "wsk-error: Failed to decode FunctionInput (value:" ++ cs value ++")"
         -- actInput = ActionInput {input = value}
     -- r <- postItem url actInput
     -- return $ invokeId (r ^. responseBody)
 
-invokeAction :: Text -> IO Text
+invokeAction :: (Show alpha) => Event alpha -> IO Text
 invokeAction = invokeAction' WC.action
 
 
 -- Get the output from activation
-getActivation' :: Text -> IO ActionOutputType
+getActivation' :: Text -> IO EventJson
 getActivation' item = do
     let url = apiEndpointUrl "activations" item
     getActivationType url
 
 
-getActivationType :: Text -> IO ActionOutputType
+getActivationType :: Text -> IO EventJson
 getActivationType url = do
     r <- getItem url
     return $ result . response $ r ^. responseBody
@@ -82,12 +84,12 @@ getActivationType url = do
 -- Recursively call get activation' and catch exception until out of retries
 -- threadDelay is set to 1 second (at least) between retries. Once out of retries
 -- exception is thrown
-getActivationRetry :: Int -> Text -> IO ActionOutputType
+getActivationRetry :: Int -> Text -> IO EventJson
 getActivationRetry n item =
     catch  (getActivation' item)
                 (\e -> do
                     let err = show (e :: HttpException)
-                    hPutStrLn stderr ("wsk-warning: Failed to retrieve output (retries:" ++  show n ++ ")")
+                    hPutStrLn stderr ("wsk-warning: Failed to retrieve output (retries:" ++  show n ++ ", actId:" ++ show item ++ ")")
                     case n of
                         0 -> throw e
                         _ -> do threadDelay 1000000
@@ -95,7 +97,7 @@ getActivationRetry n item =
 
 
 -- The default implementation runs through our function with 0 retries
-getActivation :: Text -> IO ActionOutputType
+getActivation :: Text -> IO EventJson
 getActivation = getActivationRetry 0
 
 
