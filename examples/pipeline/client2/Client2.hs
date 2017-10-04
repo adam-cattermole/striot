@@ -18,16 +18,14 @@ connectPort = 9001 :: PortNumber
 connectHost = "haskellserver" :: HostName
 
 main :: IO ()
-main = nodeLinkWhisk listenPort connectHost connectPort
-    -- nodeSink streamGraph1 printStream listenPort
+main = nodeLinkWhisk fn listenPort connectHost connectPort
 
--- streamGraph1 :: Stream String -> Stream [String]
--- streamGraph1 s = streamWindow (chop 1) $ streamMap (\st-> "Incoming Message at Server: " ++ st) s
---
--- printStream:: Show alpha => Stream alpha -> IO ()
--- printStream (h:t) = do
---     print h
---     printStream t
+-- We have to define a function where we give the types, otherwise Haskell
+-- will be unsure if it can serialise or deserialise using Show and Read
+-- Just use id function so we do not transform the data
+
+fn :: Floating alpha => Stream [alpha] -> Stream [alpha]
+fn = Prelude.id
 
 
 -- invokeAddToChan :: TChan String -> Stream String -> IO ()

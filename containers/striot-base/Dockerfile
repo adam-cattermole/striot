@@ -14,6 +14,9 @@ RUN cabal update && \
     aeson \
     string-conversions
 
+# Copy these first
+COPY striot/striot.cabal /opt/striot/
+COPY striot/license.txt /opt/striot/
 # COPY striot /opt/striot
 # COPY whisk-rest /opt/whisk-rest
 # install extras for whisk-rest
@@ -25,7 +28,16 @@ RUN cabal update && \
 # RUN cabal update && \
 #   cabal build && cabal install
 
-COPY striot /opt/striot
 WORKDIR /opt/striot
-RUN cabal build && \
-    cabal install
+
+RUN cabal update && \
+  cabal install --only-dependencies
+
+# We copy the src after so that source code changes do not require
+# re-installation of dependencies. That only happens if we change the license or
+# cabal file
+COPY striot/src /opt/striot/src
+
+# Separate for caching
+RUN cabal update && \
+  cabal build && cabal install
