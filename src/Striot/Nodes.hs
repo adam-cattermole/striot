@@ -10,57 +10,30 @@ module Striot.Nodes ( nodeSink
                     ) where
 
 import Network
-import System.IO
-import Control.Concurrent
-import Data.List
-import Striot.FunctionalIoTtypes
-import System.IO.Unsafe
-import Data.Time (getCurrentTime)
-
---- FOR MQTT SOURCE
 import qualified Network.MQTT as MQTT
-import Data.Text (Text)
-import Data.ByteString (ByteString, unpack)
--- import Data.ByteString.Lazy (ByteString, unpack)
-import Data.Char (chr)
+
+import System.IO
+import System.IO.Unsafe
+import System.Exit (exitFailure)
+
+import Control.Concurrent
 import Control.Monad
 import Control.Concurrent.STM
-import System.Exit (exitFailure)
-import Data.String.Conversions (cs)
-import Data.List.Split
+
+import Data.Time (getCurrentTime)
+import Data.Text (Text)
+import Data.ByteString (ByteString, unpack)
+import Data.Char (chr)
+import Data.Maybe (isJust)
 import Data.Aeson
 
+import Striot.FunctionalIoTtypes
 
----------------------------------------------------
-
------ START: ATTEMPT AT NEW SINK -----
--- import Control.Concurrent.STM
-
--- nodeSinkChan :: Read alpha => Show beta => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> TChan beta -> IO ()
--- nodeSinkChan streamGraph iofn portNumInput1 chan = withSocketsDo $ do
---     sock <- listenOn $ PortNumber portNumInput1
---     putStrLn "Starting server ..."
---     hFlush stdout
---     nodeSinkChan' sock streamGraph iofn chan
---
--- nodeSinkChan' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> TChan beta -> IO ()
--- nodeSinkChan' sock streamOps iofn chan = do
---     stream <- readListFromSocket sock
---     let eventStream = map read stream
---     let result = streamOps eventStream
---     iofn result
---     writeStreamToChan chan eventStream
---
--- writeStreamToChan :: TChan alpha -> Stream alpha -> IO ()
--- writeStreamToChan chan (V id   v:r) = do
---     atomically $ writeTChan chan v
---     writeStreamToChan chan r
------ END: ATTEMPT AT NEW SINK -----
-
------ START: WHISK LINK -----
-import Data.Maybe
 import WhiskRest.WhiskConnect
 import WhiskRest.WhiskJsonConversion
+
+
+----- START: WHISK LINK -----
 
 nodeLinkWhisk :: Read alpha => (Show beta, Read beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLinkWhisk fn portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
@@ -110,9 +83,6 @@ handleActivations activationChan outputChan = do
 
 
 ----- END: WHISK LINK -----
-
----------------------------------------------------
-
 
 
 nodeSink:: Read alpha => Show beta => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> IO ()
@@ -300,34 +270,5 @@ extractMsg msg =
 
 convertBsToString :: ByteString -> String
 convertBsToString = map (chr. fromEnum) . unpack
-
--- outputString :: MQTT.Topic -> ByteString -> String
--- outputString t p =
---     let funcName = extractFuncName t
---         param = extractFloatList p
---     in  fixOutputString FunctionInput {function = cs funcName,
---                                        arg      = param}
--- fixOutputString :: (ToJSON a) => a -> String
--- fixOutputString = convertBsToString . encode
-
-extractFuncName :: MQTT.Topic -> String
-extractFuncName = (++) "mqtt." . read . show
-
-extractFloatList :: ByteString -> [Float]
-extractFloatList bs =
-    let x = convertToList (read (show bs))
-    in  map read x
-
-convertToList :: String -> [String]
-convertToList s =
-    let l = splitOn "," s
-    in  map (removeElem "[]") l
-
-firstLast :: [a] -> [a]
-firstLast xs@(_:_) = tail (init xs)
-firstLast _ = []
-
-removeElem :: (Eq a) => [a] -> [a] -> [a]
-removeElem repl = filter (not . (`elem` repl))
 
 ----- END: MQTT SOURCE -----
