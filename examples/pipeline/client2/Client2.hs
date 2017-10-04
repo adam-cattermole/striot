@@ -5,14 +5,6 @@ import Striot.FunctionalIoTtypes
 import Striot.Nodes
 import Network
 
--- import WhiskRest.WhiskConnect
--- import Control.Concurrent
--- import Control.Concurrent.STM
-
--- import Data.String.Conversions (cs)
--- import Data.Text
--- import Data.List
-
 listenPort =  9002 :: PortNumber
 connectPort = 9001 :: PortNumber
 connectHost = "haskellserver" :: HostName
@@ -27,19 +19,7 @@ main = nodeLinkWhisk fn listenPort connectHost connectPort
 fn :: Floating alpha => Stream [alpha] -> Stream [alpha]
 fn = Prelude.id
 
-
--- invokeAddToChan :: TChan String -> Stream String -> IO ()
--- invokeAddToChan chan (V id   v:r) = do
---     invId <- invokeAction (cs v)
---     atomically $ writeTChan chan (cs invId)
---     print v
---     invokeAddToChan chan r
-
-
-
-
-
--- Data arrives through link
+-- Data arrives from previous node
 -- Data shipped to whisk
 -- Data retrieved from whisk
 -- Data forwarded to next node
