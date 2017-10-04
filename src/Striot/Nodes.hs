@@ -20,17 +20,15 @@ import           Striot.FunctionalIoTtypes
 import           System.IO
 import           System.IO.Unsafe
 
---- FOR MQTT SOURCE
-import qualified Network.MQTT as MQTT
-import Data.Text (Text)
-import Data.ByteString (ByteString, unpack)
--- import Data.ByteString.Lazy (ByteString, unpack)
-import Data.Char (chr)
+import Control.Concurrent
 import Control.Monad
 import Control.Concurrent.STM
-import System.Exit (exitFailure)
-import Data.String.Conversions (cs)
-import Data.List.Split
+
+import Data.Time (getCurrentTime)
+import Data.Text (Text)
+import Data.ByteString (ByteString, unpack)
+import Data.Char (chr)
+import Data.Maybe (isJust)
 import Data.Aeson
 
 ---------------------------------------------------
@@ -63,6 +61,9 @@ import Data.Aeson
 import Data.Maybe
 import WhiskRest.WhiskConnect
 import WhiskRest.WhiskJsonConversion
+
+
+----- START: WHISK LINK -----
 
 nodeLinkWhisk :: Read alpha => (Show beta, Read beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLinkWhisk fn portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do

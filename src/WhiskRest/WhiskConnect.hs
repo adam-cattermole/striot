@@ -29,10 +29,10 @@ import qualified Data.Text.Lazy.Encoding as T
 import qualified Data.ByteString.Lazy as DBL (ByteString)
 
 import System.IO
--- Our file defining the types for JSON conversion
-import WhiskRest.WhiskJsonConversion
+
 import Striot.FunctionalIoTtypes
--- Configuration parameters
+
+import WhiskRest.WhiskJsonConversion
 import qualified WhiskRest.WhiskConfig as WC
 
 
@@ -54,19 +54,11 @@ invokeAction' :: (Show alpha) => Text -> Event alpha -> IO Text
 invokeAction' item event = do
     let url = apiEndpointUrl "actions" item
         eJson = toEventJson event
-        -- decoded = decode . T.encodeUtf8 . cs . fixInputString $ value :: Maybe FunctionInput
-    -- case decoded of
-        -- Just fi -> do
     r <- postItem url eJson
     return $ invokeId (r ^. responseBody)
-        -- Nothing -> error "wsk-error: Failed to decode FunctionInput (value:" ++ cs value ++")"
-        -- actInput = ActionInput {input = value}
-    -- r <- postItem url actInput
-    -- return $ invokeId (r ^. responseBody)
 
 invokeAction :: (Show alpha) => Event alpha -> IO Text
 invokeAction = invokeAction' WC.action
-
 
 -- Get the output from activation
 getActivation' :: Text -> IO EventJson
@@ -74,12 +66,10 @@ getActivation' item = do
     let url = apiEndpointUrl "activations" item
     getActivationType url
 
-
 getActivationType :: Text -> IO EventJson
 getActivationType url = do
     r <- getItem url
     return $ result . response $ r ^. responseBody
-
 
 -- Recursively call get activation' and catch exception until out of retries
 -- threadDelay is set to 1 second (at least) between retries. Once out of retries
@@ -94,7 +84,6 @@ getActivationRetry n item =
                         0 -> throw e
                         _ -> do threadDelay 1000000
                                 getActivationRetry (n-1) item)
-
 
 -- The default implementation runs through our function with 0 retries
 getActivation :: Text -> IO EventJson
@@ -120,19 +109,17 @@ put' = putWith createOpts
 createOpts :: Network.Wreq.Options
 createOpts = defaults & manager .~ Left (mkManagerSettings (TLSSettingsSimple True False False) Nothing)
                                 & auth ?~ basicAuth WC.user WC.pass
-
--- Generalised getter
--- TODO: Add in JSON conversion and extraction
+-- gets at url for a JSON object
 getItem :: (FromJSON a) => Text -> IO (Response a)
 getItem url = asJSON =<< get' (cs url)
 
--- TODO: Add in JSON conversion
+-- posts a JSON object and expects JSON response
 postItem :: (FromJSON a, ToJSON b) => Text -> b -> IO (Response a)
 postItem url obj = asJSON =<< post' (cs url) (toJSON obj)
 
+-- puts a JSON object and expects a JSON response
 putItem :: (FromJSON a, ToJSON b) => Text -> b -> IO (Response a)
 putItem url obj = asJSON =<< put' (cs url) (toJSON obj)
-
 
 fixInputString :: Text -> Text
 fixInputString = replace "}\"" "}" . replace "\"{" "{" . replace "\\" ""
