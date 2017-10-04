@@ -1,25 +1,13 @@
-{-# Language DataKinds, OverloadedStrings #-}
---import Network
+{-# Language OverloadedStrings #-}
+
 import Control.Concurrent
-import Control.Concurrent.STM
 import System.IO
-import System.Exit (exitFailure)
 import Striot.FunctionalProcessing
 import Striot.FunctionalIoTtypes
 import Striot.Nodes
 import Network
 
-import qualified Network.MQTT as MQTT
-
-import Data.Text (Text)
-import Data.ByteString (ByteString)
-import Data.String.Conversions (cs)
-import Data.List.Split
-import Data.Aeson
-
-import Control.Monad(when)
-
-import WhiskRest.WhiskJsonConversion
+import qualified Network.MQTT as MQTT (Topic)
 
 portNum  = 9002::PortNumber
 hostName = "haskellclient2"::HostName
