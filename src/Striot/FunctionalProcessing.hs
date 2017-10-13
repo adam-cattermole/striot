@@ -37,7 +37,7 @@ type EventFilter alpha = alpha -> Bool                                     -- th
 streamFilter :: EventFilter alpha -> Stream alpha -> Stream alpha           -- if the value in the event meets the criteria then it can pass through
 streamFilter ff []                      = []
 streamFilter ff (e@(E id t v):r) | ff v      = e         : streamFilter ff r
-                                 | otherwise = (T id t  ): streamFilter ff r     -- always allow timestamps to pass through for use in time-based windowing
+                                 | otherwise = T id t    : streamFilter ff r     -- always allow timestamps to pass through for use in time-based windowing
 streamFilter ff (e@(V id   v):r) | ff v      = e         : streamFilter ff r
                                  | otherwise =             streamFilter ff r     -- needs a T to be generated?
 streamFilter ff (e@(T id t  ):r)             = e         : streamFilter ff r
@@ -149,7 +149,7 @@ complete s = [s]
 -- Merge a set of streams that are of the same type. Preserve time ordering
 streamMerge:: [Stream alpha]-> Stream alpha
 streamMerge []     = []
-streamMerge (x:[]) = x
+streamMerge [x] = x
 streamMerge (x:xs) = merge' x (streamMerge xs)
 
 merge':: Stream alpha -> Stream alpha -> Stream alpha
@@ -210,10 +210,10 @@ streamFilterAcc accfn acc filterfn (e       :rest) = let  newAcc = accfn acc (va
 
 -- Stream map with accumulating parameter
 streamScan:: (beta -> alpha -> beta) -> beta -> Stream alpha -> Stream beta
-streamScan mapfn acc ((T id t  ):rest) =                 (streamScan mapfn acc    rest)
-streamScan mapfn acc ((E id t v):rest) = (E id t newacc):(streamScan mapfn newacc rest) where newacc = mapfn acc v
-streamScan mapfn acc ((V id   v):rest) = (V id   newacc):(streamScan mapfn newacc rest) where newacc = mapfn acc v
-streamScan mapfn acc []                = (V 0    acc   ):[]
+streamScan mapfn acc (T id t  :rest) =               streamScan mapfn acc    rest
+streamScan mapfn acc (E id t v:rest) = E id t newacc:streamScan mapfn newacc rest where newacc = mapfn acc v
+streamScan mapfn acc (V id   v:rest) = V id   newacc:streamScan mapfn newacc rest where newacc = mapfn acc v
+streamScan mapfn acc []                = [V 0    acc]
 
 -- Map a Stream to a set of events
 streamExpand :: Stream [alpha] -> Stream alpha
@@ -228,7 +228,7 @@ streamSource :: Stream alpha -> Stream alpha
 streamSource ss = ss
 
 streamSink:: (Stream alpha -> beta) -> Stream alpha -> beta
-streamSink ssink s = ssink s
+streamSink ssink = ssink
 
 --- Tests ------
 t1 :: Int -> Int -> Stream alpha -> (Bool,Stream alpha,Stream alpha)
@@ -260,9 +260,9 @@ ex3 i = streamWindow (sliding i) s4
 
 ex4 i = streamWindow (chop i) s4
 
-ex5 = streamFilter (\v->v>1000) s1
+ex5 = streamFilter (>1000) s1
 
-ex6 = streamFilter (\v->v<1000) s1
+ex6 = streamFilter (<1000) s1
 
 sample :: Int -> Stream alpha -> Stream alpha
 sample n s = streamFilterAcc (\acc h -> if acc==0 then n else acc-1) n (\h acc -> acc==0) s
