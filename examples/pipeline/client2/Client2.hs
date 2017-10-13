@@ -12,5 +12,8 @@ connectHost = "haskellserver" :: HostName
 main :: IO ()
 main = nodeLink streamGraph1 listenPort connectHost connectPort
 
-streamGraph1 :: Stream String -> Stream String
-streamGraph1 s = streamMap (\st-> reverse st) s
+streamGraph1 :: Stream Int -> Stream (Int, Int)
+streamGraph1 = streamWindowAggregate (slidingTime 1) fn
+
+fn :: [Int] -> (Int, Int)
+fn ys@(x:xs) = (length ys, x)
