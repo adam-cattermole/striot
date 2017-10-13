@@ -12,6 +12,7 @@ connectHost = "127.0.0.1" :: HostName
 main :: IO ()
 main = nodeLink streamGraphid listenPort connectHost connectPort
 
+
 streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
 
