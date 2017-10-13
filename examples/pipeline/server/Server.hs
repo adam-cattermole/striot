@@ -1,17 +1,29 @@
 import System.IO
 import Data.List
+
 import Striot.FunctionalProcessing
 import Striot.FunctionalIoTtypes
 import Striot.Nodes
 import Network
 
+import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
+
 listenPort = 9001 :: PortNumber
 
 main :: IO ()
-main = nodeSink streamGraph1 printStream listenPort
+main = nodeSink streamGraphid printStream listenPort
 
-streamGraph1 :: Stream String -> Stream [String]
-streamGraph1 s = streamWindow (chop 2) $ streamMap (\st-> "Incoming Message at Server: " ++ st) s
+streamGraphid :: Stream (Int, Int) -> Stream (Int, Int)
+streamGraphid = Prelude.id
 
-printStream:: Show alpha => Stream alpha -> IO ()
+streamGraph1 :: Stream (Int, Int) -> Stream (Int, Int, Int)
+streamGraph1= streamWindowAggregate (chopTime 1) fn
+
+fn :: [(Int, Int)] -> (Int, Int, Int)
+fn e@((x,y):xs) =
+    let l = fromIntegral (length e)
+    in  (x, truncate l, round (fromIntegral (sum (map snd e))/l))
+fn [] = (0, 0, 0)
+
+printStream :: Show alpha => Stream alpha -> IO ()
 printStream = mapM_ (putStrLn.show)
