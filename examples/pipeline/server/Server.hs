@@ -11,21 +11,42 @@ import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 listenPort = 9001 :: PortNumber
 
 main :: IO ()
-main = nodeSink streamGraphid printStream listenPort
+main = do
+    writeFile "sw-log.txt" ""
+    nodeSink streamGraph1 printStreamDelay listenPort
 
-streamGraphid :: Stream (Int, Int) -> Stream (Int, Int)
+streamGraphid :: Stream [Int] -> Stream [Int]
 streamGraphid = Prelude.id
 
-streamGraph1 :: Stream (Int, Int) -> Stream (Int, Int, Int)
+streamGraph1 :: Stream [Int] -> Stream [Int]
 streamGraph1= streamWindowAggregate (chopTime 1) fn
 
-fn :: [(Int, Int)] -> (Int, Int, Int)
-fn e@((x,y):xs) =
-    let l = fromIntegral (length e)
-    in  (x, truncate l, round (fromIntegral (sum (map snd e))/l))
-fn [] = (0, 0, 0)
+fn :: [[Int]] -> [Int]
+fn e@(x:xs) =
+    let l = length e
+        currenthz = averageVal l (map head e)
+        client2hz = averageVal l (map last e) -- averaging over window in case it changes mid window
+    in [currenthz, client2hz, l]
+fn [] = [0]
 
-printStream :: Show alpha => Stream alpha -> IO ()
-printStream (h:t) = do
-    print h
-    printStream t
+averageVal :: Int -> [Int] -> Int
+averageVal l xs = sum xs `div` l
+
+printStreamDelay :: Stream [Int] -> IO ()
+printStreamDelay (e@(E id t v):r) = do
+    now <- getCurrentTime
+    let newe = mapTimeDelay delay e where delay = diffUTCTime now t
+    appendFile "sw-log.txt" (show newe ++ "\n")
+    print newe
+    printStreamDelay r
+printStreamDelay (e:r) = do
+    print e
+    printStreamDelay r
+printStreamDelay [] = return ()
+
+mapTimeDelay :: NominalDiffTime -> Event [Int] -> Event ([Int], Float)
+mapTimeDelay delay (E id t v) = E id t newv
+    where newv = (v, roundN 3 (toRational delay))
+
+roundN :: Int -> Rational -> Float
+roundN n f = fromInteger (round $ f * (10^n)) / (10.0^^n)

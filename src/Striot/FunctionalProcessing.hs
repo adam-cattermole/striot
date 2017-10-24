@@ -56,11 +56,13 @@ eventMap fm (T id t  ) = T id t        -- allow timestamps to pass through untou
 type WindowMaker alpha = Stream alpha -> [Stream alpha]
 type WindowAggregator alpha beta = [alpha] -> beta
 
-streamWindow :: WindowMaker alpha -> Stream alpha -> Stream [alpha]
-streamWindow fwm s = map (\win-> if timedEvent $ head win
-                                 then E 0 (time $ head win) (getVals win)
-                                 else V 0                   (getVals win))
-                         (fwm s)
+streamWindow:: WindowMaker alpha -> Stream alpha -> Stream [alpha]
+streamWindow fwm s@(_:_) = map  (\win -> if timedEvent $ head win
+                                                then E 0 (time $ head win) (getVals win)
+                                                else V 0                   (getVals win))
+                                x
+                         where x = filter (not . null) (fwm s)
+streamWindow fwm [] = []
 
 streamWindowAggregate :: WindowMaker alpha -> WindowAggregator alpha beta -> Stream alpha -> Stream beta
 streamWindowAggregate fwm fwa s = streamMap fwa $ streamWindow fwm s
