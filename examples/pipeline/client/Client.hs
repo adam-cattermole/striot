@@ -11,20 +11,20 @@ hostName = "haskellclient2"::HostName
 
 main :: IO ()
 main = do
-         threadDelay (1 * 1000 * 1000)
          indexChan <- newTChanIO
          let start = 1
-             rate  = 10000
+             rate  = 20000
              swrate = 100
          atomically $ writeTChan indexChan start
-         _ <- forkIO $ generator2 indexChan rate rates
+         threadDelay (1 * 1000 * 1000)
+         _ <- forkIO $ generator2 indexChan swrate swrates
          nodeSource (src1 indexChan) streamGraph2 hostName portNum -- processes source before sending it to another node
 
 streamGraph2 :: Stream Int -> Stream Int
 streamGraph2 = Prelude.id
 
 src1 :: TChan Int -> IO Int
-src1 indexChan = waitDelay indexChan
+src1 = waitDelay
 
 rates :: [Int]
 rates = [1,5,10,20,50,100,200,500,1000,10000]
@@ -34,7 +34,7 @@ swrates =
     let f   = 1       -- freq
         fs  = 800     -- sample rate
         hzmiddle = 250
-    in  cycle [ceiling((sin (2*pi*f*(x/fs))+1)*hzmiddle) |  x <- [0..fs]]
+    in  [ceiling((sin (2*pi*f*(x/fs))+1)*hzmiddle) |  x <- [0..fs]]
 
 message :: Int
 message = 1
@@ -48,10 +48,11 @@ hz x
 waitDelay :: TChan Int -> IO Int
 waitDelay indexChan = do
     i <- atomically (peekTChan indexChan)
-    threadDelay (hz i)
-    return i
-
-
+    case i of
+        (-1) -> exitSuccess
+        _ -> do
+            threadDelay (hz i)
+            return i
 
 generator :: TChan Int -> Int -> Int -> IO b
 generator indexChan rate index = do
@@ -62,13 +63,17 @@ generator indexChan rate index = do
     atomically $ readTChan indexChan
     generator indexChan rate newi
 
-generator2 :: TChan a -> Int -> [a] -> IO ()
-generator2 indexChan rate [] = print "Gen at max"
+generator2 :: (Num a) => TChan a -> Int -> [a] -> IO ()
+generator2 indexChan rate [] = do
+    print "Gen at max"
+    atomically $ writeTChan indexChan (-1)
+    atomically $ tryReadTChan indexChan
+    exitSuccess
 generator2 indexChan rate (x:xs) = do
     gen' indexChan rate x
     generator2 indexChan rate xs
 
-gen' :: TChan a -> Int -> [a] -> IO ()
+gen' :: TChan a -> Int -> a -> IO ()
 gen' indexChan rate x = do
     atomically $ writeTChan indexChan x
     atomically $ tryReadTChan indexChan
