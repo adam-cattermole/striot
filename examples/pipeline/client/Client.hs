@@ -15,19 +15,19 @@ hostName = "haskellclient2"::HostName
 
 main :: IO ()
 main = do
+         indexChan <- newTChanIO
          let start = 1
              rate  = 20000
              swrate = 100
-         indexVar <- newTVarIO start
-         messageVar <- newTVarIO start
+         atomically $ writeTChan indexChan start
          threadDelay (1 * 1000 * 1000)
-         _ <- forkIO $ generator2 indexVar messageVar rate rates
-         nodeSource (src1 indexVar messageVar) streamGraph2 hostName portNum -- processes source before sending it to another node
+         _ <- forkIO $ generator2 indexChan swrate swrates
+         nodeSource (src1 indexChan) streamGraph2 hostName portNum -- processes source before sending it to another node
 
 streamGraph2 :: Stream (Int, Int) -> Stream (Int, Int)
 streamGraph2 = Prelude.id
 
-src1 :: TVar Int -> TVar Int -> IO (Int, Int)
+src1 :: TChan Int -> IO Int
 src1 = waitDelay
 
 rates :: [Int]
@@ -49,16 +49,14 @@ hz x
     | otherwise = f x
     where f = round . (1000000 /) . fromIntegral
 
-waitDelay :: TVar Int -> TVar Int -> IO (Int, Int)
-waitDelay indexVar messageVar = do
-    i <- atomically $ readTVar indexVar
+waitDelay :: TChan Int -> IO Int
+waitDelay indexChan = do
+    i <- atomically (peekTChan indexChan)
     case i of
         (-1) -> exitSuccess
         _ -> do
             threadDelay (hz i)
-            m <- atomically $ readTVar messageVar
-            atomically $ writeTVar messageVar (m+1)
-            return (m, i)
+            return i
 
 generator :: TVar Int -> Int -> Int -> IO b
 generator indexVar rate index = do
@@ -68,18 +66,18 @@ generator indexVar rate index = do
     atomically $ writeTVar indexVar newi
     generator indexVar rate newi
 
-generator2 :: (Num a) => TVar a -> TVar a -> Int -> [a] -> IO ()
-generator2 indexVar messageVar rate [] = do
+generator2 :: (Num a) => TChan a -> Int -> [a] -> IO ()
+generator2 indexChan rate [] = do
     print "Gen at max"
-    atomically $ writeTVar indexVar (-1)
-    atomically $ writeTVar messageVar (-1)
+    atomically $ writeTChan indexChan (-1)
+    atomically $ tryReadTChan indexChan
     exitSuccess
-generator2 indexVar messageVar rate (x:xs) = do
-    gen' indexVar messageVar rate x
-    generator2 indexVar messageVar rate xs
+generator2 indexChan rate (x:xs) = do
+    gen' indexChan rate x
+    generator2 indexChan rate xs
 
-gen' :: (Num a) => TVar a -> TVar a -> Int -> a -> IO ()
-gen' indexVar messageVar rate x = do
-    atomically $ writeTVar indexVar x
-    atomically $ writeTVar messageVar 1
+gen' :: TChan a -> Int -> a -> IO ()
+gen' indexChan rate x = do
+    atomically $ writeTChan indexChan x
+    atomically $ tryReadTChan indexChan
     threadDelay (rate*1000)

@@ -12,12 +12,8 @@ connectHost = "127.0.0.1" :: HostName
 main :: IO ()
 main = nodeLink streamGraphid listenPort connectHost connectPort
 
+streamGraph1 :: Stream Int -> Stream [Int]
+streamGraph1 = streamWindowAggregate (slidingTime 1) fn
 
-streamGraphid :: Stream String -> Stream String
-streamGraphid = Prelude.id
-
--- streamGraph1 :: Stream Int -> Stream [Int]
--- streamGraph1 = streamWindowAggregate (slidingTime 1) fn
-
--- fn :: [Int] -> [Int]
--- fn ys@(x:xs) = [x, length ys]
+fn :: [Int] -> [Int]
+fn ys@(x:xs) = [x, length ys]
