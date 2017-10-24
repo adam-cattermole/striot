@@ -20,34 +20,29 @@ main = do
     nodeSink kaliParse printStreamDelay listenPort
     -- nodeSink streamGraphid printStream listenPort
 
-streamGraphid :: Stream String -> Stream String
+streamGraphid :: Stream [Int] -> Stream [Int]
 streamGraphid = Prelude.id
 
-kaliParse :: Stream String -> Stream UTCTime
-kaliParse = streamMap (\x -> posixSecondsToUTCTime . fromRational $ fst (head (kaliParse' x)) / 1000000)
+streamGraph1 :: Stream [Int] -> Stream [Int]
+streamGraph1= streamWindowAggregate (chopTime 1) fn
 
-kaliParse' x = readHex $ filter (/='.') (splitOn "-" x !! 1)
-
--- streamGraph1 :: Stream Int -> Stream [Int]
--- streamGraph1= streamWindowAggregate (chopTime 1) fn
-
--- fn :: [Int] -> [Int]
--- fn e@(x:xs) =
---     let l = length e
---         currenthz = averageVal l (head e)
---         client2hz = averageVal l (last e) -- averaging over window in case it changes mid window
---     in [currenthz, client2hz, l]
--- fn [] = [0]
+fn :: [[Int]] -> [Int]
+fn e@(x:xs) =
+    let l = length e
+        currenthz = averageVal l (map head e)
+        client2hz = averageVal l (map last e) -- averaging over window in case it changes mid window
+    in [currenthz, client2hz, l]
+fn [] = [0]
 
 averageVal :: Int -> [Int] -> Int
 averageVal l xs = sum xs `div` l
 
-printStreamDelay :: Stream UTCTime -> IO ()
+printStreamDelay :: Stream [Int] -> IO ()
 printStreamDelay (e@(E id t v):r) = do
     now <- getCurrentTime
-    let newe = mapTimeDelay delay e where delay = diffUTCTime now v
-    print newe
+    let newe = mapTimeDelay delay e where delay = diffUTCTime now t
     appendFile "sw-log.txt" (show newe ++ "\n")
+    print newe
     printStreamDelay r
 printStreamDelay (e:r) = do
     print e
@@ -61,7 +56,7 @@ printStream (e:r) = do
 
 mapTimeDelay :: NominalDiffTime -> Event UTCTime -> Event (UTCTime, Float)
 mapTimeDelay delay (E id t v) = E id t newv
-    where newv = (v, roundN 10 (toRational delay))
+    where newv = (v, roundN 3 (toRational delay))
 
 roundN :: Int -> Rational -> Float
 roundN n f = fromInteger (round $ f * (10^n)) / (10.0^^n)
