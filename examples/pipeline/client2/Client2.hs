@@ -11,14 +11,17 @@ connectPort = 9001 :: PortNumber
 connectHost = "haskellserver" :: HostName
 
 main :: IO ()
-main = nodeLinkWhisk fn listenPort connectHost connectPort
+main = nodeLinkWhisk streamGraph1 listenPort connectHost connectPort
+
+streamGraph1 :: Stream Int -> Stream [Int]
+streamGraph1 = streamWindowAggregate (slidingTime 1) fn
 
 -- We have to define a function where we give the types, otherwise Haskell
 -- will be unsure if it can serialise or deserialise using Show and Read
 -- Just use id function so we do not transform the data
 
-fn :: Floating alpha => Stream [alpha] -> Stream [alpha]
-fn = Prelude.id
+fn :: [Int] -> [Int]
+fn ys@(x:xs) = [x, length ys]
 
 -- Data arrives from previous node
 -- Data shipped to whisk
