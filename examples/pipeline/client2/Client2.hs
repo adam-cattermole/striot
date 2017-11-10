@@ -16,8 +16,8 @@ main = do
     connectHost <- getEnv "HASKELL_SERVER_SERVICE_HOST"
     nodeLink streamGraphid listenPort connectHost connectPort
 
-streamGraph1 :: Stream Int -> Stream [Int]
-streamGraph1 = streamWindowAggregate (slidingTime 1) fn
+streamGraphid :: Stream (Int, Int) -> Stream (Int, Int)
+streamGraphid = Prelude.id
 
 streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
