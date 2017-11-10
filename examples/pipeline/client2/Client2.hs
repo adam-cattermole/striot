@@ -14,10 +14,7 @@ main :: IO ()
 main = do
     podName <- getEnv "HOSTNAME"
     connectHost <- getEnv "HASKELL_SERVER_SERVICE_HOST"
-    nodeLink streamGraph1 listenPort connectHost connectPort
+    nodeLink streamGraphid listenPort connectHost connectPort
 
-streamGraph1 :: Stream Int -> Stream [Int]
-streamGraph1 = streamWindowAggregate (slidingTime 1) fn
-
-fn :: [Int] -> [Int]
-fn ys@(x:xs) = [x, length ys]
+streamGraphid :: Stream (Int, Int) -> Stream (Int, Int)
+streamGraphid = Prelude.id
