@@ -11,7 +11,10 @@ connectPort = 9001 :: PortNumber
 connectHost = "haskellserver" :: HostName
 
 main :: IO ()
-main = nodeLinkWhisk streamGraph1 listenPort connectHost connectPort
+main = nodeLinkWhisk streamGraphid listenPort connectHost connectPort
+
+streamGraphid :: Stream (Int, Int) -> Stream (Int, Int)
+streamGraphid = Prelude.id
 
 streamGraph1 :: Stream Int -> Stream [Int]
 streamGraph1 = streamWindowAggregate (slidingTime 1) fn
