@@ -8,9 +8,9 @@ import Network
 
 import System.Exit
 
-portNum  = 9002::PortNumber
+portNum  = 9004::PortNumber
 -- portNum = 9001 :: PortNumber
-hostName = "haskellclient2"::HostName
+hostName = "haskelllink1"::HostName
 -- hostName = "haskellserver" :: HostName
 
 main :: IO ()

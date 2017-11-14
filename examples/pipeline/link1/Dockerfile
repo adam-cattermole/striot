@@ -1,15 +1,14 @@
 #Run from a pre-built Haskell container
 FROM jmtd/striot-base:latest
 
-WORKDIR /opt/client2
+WORKDIR /opt/link1
 
 
 # Add and Install Application Code
-COPY . /opt/client2
+COPY . /opt/link1
 
 # Compile
-RUN ghc Client2.hs
+RUN ghc Link1.hs
 
-# Run the client 
-CMD ["/opt/client2/Client2"]
-
+# Run the client
+CMD ["/opt/link1/Link1"]

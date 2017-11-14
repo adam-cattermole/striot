@@ -5,8 +5,26 @@ haskellserver:
     - "9001:9001"
   stdin_open: true
   tty: true
-haskellclient2:
-  build: client2
+haskelllink1:
+  build: link1
+  # image: sjwoodman/haskell-client2
+  links:
+    - haskelllink2
+  ports:
+    - "9004:9004"
+  stdin_open: true
+  tty: true
+haskelllink2:
+  build: link2
+  # image: sjwoodman/haskell-client2
+  links:
+    - haskelllink3
+  ports:
+    - "9003:9003"
+  stdin_open: true
+  tty: true
+haskelllink3:
+  build: link3
   # image: sjwoodman/haskell-client2
   links:
     - haskellserver
@@ -18,4 +36,4 @@ haskellclient:
   build: client
   # image: sjwoodman/haskell-client
   links:
-    - haskellclient2
+    - haskelllink1
