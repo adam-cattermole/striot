@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 
 
 #define HOST "haskell-client2.eastus.cloudapp.azure.com"
@@ -23,9 +24,9 @@ typedef chrono::system_clock Clock;
 
 int oldSend(string*);
 
-void setupEndpoint(int*, struct sockaddr_in*);
+void setupEndpoint(struct sockaddr_in*);
 
-int sendMessage(const int*, string*);
+int sendMessage(string*);
 
 void getHostIp(string*);
 
@@ -63,7 +64,7 @@ int main() {
 //    int id = 0;
     struct sockaddr_in server;
 
-    setupEndpoint(&sock, &server);
+    setupEndpoint(&server);
 
 
     string message;
@@ -76,22 +77,24 @@ int main() {
 
     console->info("Connect to socket");
 
-//    generateEvent(&message);
     if (connect(sock, (const sockaddr *) &server, sizeof(server)) < 0 ) {
         console->error("Failed to connect to socket");
         exit(-1);
     }
+//    generateEvent(&message);
+
 //    send(sock, (char *) message.c_str(), strlen((char *) message.c_str()), 0);
+
 
     while(true) {
         generateEvent(&message);
-        sendMessage(&sock, &message);
+        sendMessage(&message);
 
-        this_thread::sleep_for(chrono::milliseconds(1000));
+        this_thread::sleep_for(chrono::milliseconds(5000));
 
 //        t1.join();
 //        message.clear();
-//
+//        close(sock);
     }
 
 //    sendMessage(&sock, (const sockaddr*) &server, &message);
@@ -104,7 +107,7 @@ int oldSend(string* event) {
     auto console = spd::get("console");
     console->info("Call sendMessage with event: {}", *event);
 
-    int sock;
+//    int sock;
     struct sockaddr_in server;
     string inetAddr;
 
@@ -137,7 +140,7 @@ int oldSend(string* event) {
 }
 
 
-void setupEndpoint(int* sock, struct sockaddr_in* server) {
+void setupEndpoint(struct sockaddr_in* server) {
     auto console = spd::get("console");
     console->info("Setting up struct");
 
@@ -147,11 +150,20 @@ void setupEndpoint(int* sock, struct sockaddr_in* server) {
     console->info("DNS resolved as: {}", inetAddr);
 
     console->info("Create the TCP socket");
-    *sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (*sock < 0) {
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
         console->info("Could not create socket");
         exit(-1);
     }
+
+    console->info("Setting socket TCP_NODELAY");
+    int flag = 1;
+    if (setsockopt(sock,
+                   IPPROTO_TCP,
+                   TCP_NODELAY,
+                   (char *) &flag,
+                   sizeof(int)) < 0)
+        console->error("Failed to setsockopt TCP_NODELAY");
 
     console->info("Setting server struct to empty");
     memset((void *) server, '\0', sizeof(struct sockaddr_in));
@@ -163,15 +175,18 @@ void setupEndpoint(int* sock, struct sockaddr_in* server) {
     console->info("Setup complete");
 }
 
-int sendMessage(const int* sock, string* event) {
+int sendMessage(string* event) {
     auto console = spd::get("console");
 //    console->info("Call sendMessage with event: {}", *event);
 
     console->info("Send message: {} to socket", *event);
-    send(*sock, (char *) event->c_str(), strlen((char *) event->c_str()), 0);
+    send(sock, (char *) event->c_str(), strlen((char *) event->c_str()), 0);
 
     return 0;
 }
+
+// E {id = 1, time = 2017-11-21 14:34:24.670525 UTC, value = (1,1)}
+// E {id = 1, time = 2017-11-21 14:34:25.671898 UTC, value = (1,1)}
 
 
 
@@ -242,6 +257,8 @@ void my_handler(int s){
     auto console = spd::get("console");
     console->info("Caught signal {}", s);
 
+    console->info("Closing sock {}", sock);
+    close(sock);
 
     exit(s);
 }
