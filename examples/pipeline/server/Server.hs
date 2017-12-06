@@ -7,16 +7,25 @@ import Striot.Nodes
 import Network
 
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
+import Data.Time.Clock (UTCTime)
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.List.Split
+import Numeric
 
 listenPort = 9001 :: PortNumber
 
 main :: IO ()
 main = do
     writeFile "sw-log.txt" ""
-    nodeSink streamGraphid printStreamDelay listenPort
+    nodeSink kaliParse printStreamDelay listenPort
 
-streamGraphid :: Stream (Int, Int) -> Stream (Int, Int)
+streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
+
+kaliParse :: Stream String -> Stream UTCTime
+kaliParse = streamMap (\x -> posixSecondsToUTCTime . fromRational $ fst (head (kaliParse' x)) / 1000000)
+
+kaliParse' x = readHex $ filter (/='.') (splitOn "-" x !! 1)
 
 -- streamGraph1 :: Stream Int -> Stream [Int]
 -- streamGraph1= streamWindowAggregate (chopTime 1) fn
@@ -32,10 +41,10 @@ streamGraphid = Prelude.id
 averageVal :: Int -> [Int] -> Int
 averageVal l xs = sum xs `div` l
 
-printStreamDelay :: Stream (Int,Int) -> IO ()
+printStreamDelay :: Stream UTCTime -> IO ()
 printStreamDelay (e@(E id t v):r) = do
     now <- getCurrentTime
-    let newe = mapTimeDelay delay e where delay = diffUTCTime now t
+    let newe = mapTimeDelay delay e where delay = diffUTCTime now v
     appendFile "sw-log.txt" (show newe ++ "\n")
     print newe
     printStreamDelay r
@@ -49,9 +58,9 @@ printStream (e:r) = do
     print e
     printStream r
 
-mapTimeDelay :: NominalDiffTime -> Event (Int, Int) -> Event (Int, Int, Float)
+mapTimeDelay :: NominalDiffTime -> Event UTCTime -> Event (UTCTime, Float)
 mapTimeDelay delay (E id t v) = E id t newv
-    where newv = (fst v, snd v, roundN 15 (toRational delay))
+    where newv = (v, roundN 15 (toRational delay))
 
 roundN :: Int -> Rational -> Float
 roundN n f = fromInteger (round $ f * (10^n)) / (10.0^^n)
