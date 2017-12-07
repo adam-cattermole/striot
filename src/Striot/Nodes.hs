@@ -55,7 +55,7 @@ nodeSink2' sock1 sock2 streamOps iofn = do
 
 --- LINK FUNCTIONS ---
 
-nodeLink :: Read alpha => Show beta => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
+nodeLink :: (Read alpha, Show beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
     sockIn <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting link ..."
