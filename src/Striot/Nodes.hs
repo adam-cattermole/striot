@@ -100,42 +100,19 @@ nodeLink2' sock1 sock2 streamOps host port = do
     nodeLink2' sock1 sock2 streamOps host port
 
 
+nodeLink2' :: (Read alpha, Read beta, Show gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> PortNumber -> IO ()
+nodeLink2' sock1 sock2 streamOps host port = do
+    (inHdl1, stream1) <- readEventStreamFromSocket sock1
+    (inHdl2, stream2) <- readEventStreamFromSocket sock2
+    let result = streamOps stream1 stream2
+    sendStream result host port
+    hClose inHdl1
+    hClose inHdl2
+    print "Closed input handles"
+    nodeLink2' sock1 sock2 streamOps host port
 
-sendStream' :: Show alpha => Stream alpha -> HostName -> PortNumber -> IO ()
-sendStream' [] host port = return ()
-sendStream' stream@(h:t) host port = withSocketsDo $ do
-    hdl <- connectTo host (PortNumber port)
-    hSetBuffering hdl NoBuffering
-    print "Open output connection"
-    hPutLines' hdl stream -- THIS SHOULD BLOCK UNTIL THE CONNECTION CLOSES
 
-
-hPutLines' :: Show alpha => Handle -> Stream alpha -> IO ()
-hPutLines' handle [] = do
-    hClose handle
-    print "Closed output handle"
-    return ()
-hPutLines' handle (h:t) = do
-    writeable <- hIsWritable handle
-    open <- hIsOpen handle
-    when (open && writeable) $
-        do
-            -- print h
-            hPrint handle h
-            hPutLines' handle t
-
-{-
-hPutLines'' :: Show alpha => Handle -> Stream alpha -> IO ()
-hPutLines'' handle [] = return ()
-hPutLines'' handle (h:t) = do
-    writeable <- hIsWritable handle
-    open <- hIsOpen handle
-    when (open && writeable) $
-        do
-            -- print h
-            hPrint handle h
-            hPutLines' handle t
--}
+---- SOURCE FUNCTIONS ----
 
 {-
 sendSource:: Show alpha => IO alpha -> IO ()
@@ -159,6 +136,9 @@ nodeSource pay streamGraph host port = do
 
 
 --- UTILITY FUNCTIONS ---
+
+
+---- UTILITY FUNCTIONS ----
 
 readListFromSource :: IO alpha -> IO (Stream alpha)
 readListFromSource = go 0
