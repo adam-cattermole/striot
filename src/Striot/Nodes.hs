@@ -107,6 +107,9 @@ nodeSource pay streamGraph host port = do
 
 --- UTILITY FUNCTIONS ---
 
+
+---- UTILITY FUNCTIONS ----
+
 readListFromSource :: IO alpha -> IO (Stream alpha)
 readListFromSource = go 0
   where
