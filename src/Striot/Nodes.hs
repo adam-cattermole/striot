@@ -1,4 +1,6 @@
-{-# Language DataKinds, OverloadedStrings #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
@@ -9,30 +11,31 @@ module Striot.Nodes ( nodeSink
                     , nodeMqttByTopicSource
                     ) where
 
-import Network (listenOn, connectTo, PortID(PortNumber))
-import qualified Network.MQTT as MQTT
-import Network.Socket
+import           Network                       (PortID (PortNumber), connectTo,
+                                                listenOn)
+import qualified Network.MQTT                  as MQTT
+import           Network.Socket
 
-import System.IO
-import System.IO.Unsafe
-import System.Exit (exitFailure)
+import           System.Exit                   (exitFailure)
+import           System.IO
+import           System.IO.Unsafe
 
-import Control.Concurrent
-import Control.Monad (when)
-import Control.Concurrent.STM
+import           Control.Concurrent
+import           Control.Concurrent.STM
+import           Control.Monad                 (when)
 
-import Data.Time (getCurrentTime)
-import Data.Text (Text)
-import Data.ByteString (ByteString, unpack)
-import Data.Char (chr)
-import Data.Maybe (isJust)
-import Data.Aeson
-import Data.List
+import           Data.Aeson
+import           Data.ByteString               (ByteString, unpack)
+import           Data.Char                     (chr)
+import           Data.List
+import           Data.Maybe                    (isJust)
+import           Data.Text                     (Text)
+import           Data.Time                     (getCurrentTime)
 
-import Striot.FunctionalIoTtypes
+import           Striot.FunctionalIoTtypes
 
-import WhiskRest.WhiskConnect
-import WhiskRest.WhiskJsonConversion
+import           WhiskRest.WhiskConnect
+import           WhiskRest.WhiskJsonConversion
 
 
 ----- START: WHISK LINK -----
@@ -89,82 +92,85 @@ handleActivations activationChan outputChan = do
 
 --- SINK FUNCTIONS ---
 
-nodeSink:: (Read alpha, Show beta) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> IO ()
+nodeSink :: (Read alpha, Show beta) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> IO ()
 nodeSink streamGraph iofn portNumInput1 = withSocketsDo $ do
-                                              sock <- listenOn $ PortNumber portNumInput1
-                                              putStrLn "Starting server ..."
-                                              hFlush stdout
-                                              nodeSink' sock streamGraph iofn
+    sock <- listenOn $ PortNumber portNumInput1
+    putStrLn "Starting server ..."
+    hFlush stdout
+    nodeSink' sock streamGraph iofn
 
-nodeSink' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
+
+nodeSink' :: (Read alpha, Show beta) => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
 nodeSink' sock streamOps iofn = do
-                                   (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
-                                   let result = streamOps stream         -- process stream
-                                   iofn result
-                                   hClose handle
-                                   -- print "Closed input handle"
-                                   nodeSink' sock streamOps iofn
+    (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
+    let result = streamOps stream         -- process stream
+    iofn result
+    hClose handle
+    -- print "Closed input handle"
+    nodeSink' sock streamOps iofn
+
 
 -- A Link with 2 inputs
-nodeSink2:: Read alpha => Read beta => Show gamma => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> PortNumber -> PortNumber -> IO ()
+nodeSink2 :: (Read alpha, Read beta, Show gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> PortNumber -> PortNumber -> IO ()
 nodeSink2 streamGraph iofn portNumInput1 portNumInput2= withSocketsDo $ do
-                                          sock1 <- listenOn $ PortNumber portNumInput1
-                                          sock2 <- listenOn $ PortNumber portNumInput2
-                                          putStrLn "Starting server ..."
-                                          hFlush stdout
-                                          nodeSink2' sock1 sock2 streamGraph iofn
+    sock1 <- listenOn $ PortNumber portNumInput1
+    sock2 <- listenOn $ PortNumber portNumInput2
+    putStrLn "Starting server ..."
+    hFlush stdout
+    nodeSink2' sock1 sock2 streamGraph iofn
 
-nodeSink2' :: Read alpha => Read beta => Show gamma => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> IO ()
+
+nodeSink2' :: (Read alpha, Read beta, Show gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> IO ()
 nodeSink2' sock1 sock2 streamOps iofn = do
-                                          (handle1, stream1) <- readEventStreamFromSocket sock1 -- read stream of Events from socket
-                                          (handle2, stream2) <- readEventStreamFromSocket sock2 -- read stream of Events from socket
-                                          let result = streamOps stream1 stream2     -- process stream
-                                          iofn result
-                                          hClose handle1
-                                          hClose handle2
-                                          -- print "Close input handles"
-                                          nodeSink2' sock1 sock2 streamOps iofn
-
+    (handle1, stream1) <- readEventStreamFromSocket sock1 -- read stream of Events from socket
+    (handle2, stream2) <- readEventStreamFromSocket sock2 -- read stream of Events from socket
+    let result = streamOps stream1 stream2     -- process stream
+    iofn result
+    hClose handle1
+    hClose handle2
+    -- print "Close input handles"
+    nodeSink2' sock1 sock2 streamOps iofn
 
 --- LINK FUNCTIONS ---
 
-nodeLink :: Read alpha => Show beta => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
+nodeLink :: (Read alpha, Show beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
-                                         sockIn <- listenOn $ PortNumber portNumInput1
-                                         putStrLn "Starting link ..."
-                                         hFlush stdout
-                                         nodeLink' sockIn streamGraph hostNameOutput portNumOutput
+    sockIn <- listenOn $ PortNumber portNumInput1
+    putStrLn "Starting link ..."
+    hFlush stdout
+    nodeLink' sockIn streamGraph hostNameOutput portNumOutput
 
-nodeLink' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+
+nodeLink' :: (Read alpha, Show beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeLink' sock streamOps host port = do
-                             (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
-                             let result = streamOps stream  -- process stream
-                             sendStream result host port         -- to send stream to another node
-                             hClose handle
-                             -- print "Closed input handle"
-                             nodeLink' sock streamOps host port
+    (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
+    let result = streamOps stream  -- process stream
+    sendStream result host port         -- to send stream to another node
+    hClose handle
+    -- print "Closed input handle"
+    nodeLink' sock streamOps host port
+
 
 -- A Link with 2 inputs
-nodeLink2:: Read alpha => Read beta => Show gamma => (Stream alpha -> Stream beta -> Stream gamma) -> PortNumber -> PortNumber -> HostName -> PortNumber -> IO ()
+nodeLink2 :: (Read alpha, Read beta, Show gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> PortNumber -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink2 streamGraph portNumInput1 portNumInput2 hostName portNumOutput = withSocketsDo $ do
-                                          sock1 <- listenOn $ PortNumber portNumInput1
-                                          sock2 <- listenOn $ PortNumber portNumInput2
-                                          putStrLn "Starting server ..."
-                                          hFlush stdout
-                                          nodeLink2' sock1 sock2 streamGraph hostName portNumOutput
+    sock1 <- listenOn $ PortNumber portNumInput1
+    sock2 <- listenOn $ PortNumber portNumInput2
+    putStrLn "Starting server ..."
+    hFlush stdout
+    nodeLink2' sock1 sock2 streamGraph hostName portNumOutput
 
-nodeLink2' :: Read alpha => Read beta => Show gamma => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> PortNumber -> IO ()
+
+nodeLink2' :: (Read alpha, Read beta, Show gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> PortNumber -> IO ()
 nodeLink2' sock1 sock2 streamOps host port = do
-                                     (handle1, stream1) <- readEventStreamFromSocket sock1 -- read stream of Events from socket
-                                     (handle2, stream2) <- readEventStreamFromSocket sock2 -- read stream of Events from socket
-                                     let result = streamOps stream1 stream2 -- process stream
-                                     sendStream result host port                      -- to send stream to another node
-                                     hClose handle1
-                                     hClose handle2
-                                     -- print "Closed input handles"
-                                     nodeLink2' sock1 sock2 streamOps host port
-
-
+    (handle1, stream1) <- readEventStreamFromSocket sock1 -- read stream of Events from socket
+    (handle2, stream2) <- readEventStreamFromSocket sock2 -- read stream of Events from socket
+    let result = streamOps stream1 stream2 -- process stream
+    sendStream result host port                      -- to send stream to another node
+    hClose handle1
+    hClose handle2
+    -- print "Closed input handles"
+    nodeLink2' sock1 sock2 streamOps host port
 
 
 {-
@@ -183,10 +189,10 @@ sendSource pay       = withSocketsDo $ do
 
 nodeSource :: Show beta => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeSource pay streamGraph host port = do
-                               putStrLn "Starting source ..."
-                               stream <- readListFromSource pay
-                               let result = streamGraph stream
-                               sendStream result host port -- or printStream if it's a completely self contained streamGraph
+    stream <- readListFromSource pay
+    let result = streamGraph stream
+    sendStream result host port -- or printStream if it's a completely self contained streamGraph
+
 
 
 ----- START: MQTT SOURCE -----
@@ -241,7 +247,7 @@ getMqttMsgByTopic :: Read alpha => TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.To
 getMqttMsgByTopic pubChan topic = do
     message <- atomically (readTChan pubChan) >>= handleMsgByTopic topic
     case message of
-        Just m -> return $ read m
+        Just m  -> return $ read m
         Nothing -> getMqttMsgByTopic pubChan topic
 
 handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String)
@@ -271,13 +277,13 @@ convertBsToString = map (chr. fromEnum) . unpack
 
 readListFromSource :: IO alpha -> IO (Stream alpha)
 readListFromSource = go 0
-  where
-    go i pay  = do
-                   now <- getCurrentTime
-                   payload <- pay
-                   let msg = E i now payload
-                   r <- System.IO.Unsafe.unsafeInterleaveIO (go (i+1) pay) -- at some point this will overflow
-                   return (msg:r)
+    where
+        go i pay  = do
+            now <- getCurrentTime
+            payload <- pay
+            let msg = E i now payload
+            r <- System.IO.Unsafe.unsafeInterleaveIO (go (i+1) pay) -- at some point this will overflow
+            return (msg:r)
 
 
 readListFromSocket :: Socket -> IO [String]
