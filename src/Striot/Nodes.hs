@@ -105,9 +105,6 @@ nodeSource pay streamGraph host port = do
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
 
---- UTILITY FUNCTIONS ---
-
-
 ---- UTILITY FUNCTIONS ----
 
 readListFromSource :: IO alpha -> IO (Stream alpha)
