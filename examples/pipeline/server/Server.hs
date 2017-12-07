@@ -45,8 +45,8 @@ printStreamDelay :: Stream UTCTime -> IO ()
 printStreamDelay (e@(E id t v):r) = do
     now <- getCurrentTime
     let newe = mapTimeDelay delay e where delay = diffUTCTime now v
-    appendFile "sw-log.txt" (show newe ++ "\n")
     print newe
+    appendFile "sw-log.txt" (show newe ++ "\n")
     printStreamDelay r
 printStreamDelay (e:r) = do
     print e
@@ -60,7 +60,7 @@ printStream (e:r) = do
 
 mapTimeDelay :: NominalDiffTime -> Event UTCTime -> Event (UTCTime, Float)
 mapTimeDelay delay (E id t v) = E id t newv
-    where newv = (v, roundN 15 (toRational delay))
+    where newv = (v, roundN 10 (toRational delay))
 
 roundN :: Int -> Rational -> Float
 roundN n f = fromInteger (round $ f * (10^n)) / (10.0^^n)
