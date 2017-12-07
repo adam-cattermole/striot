@@ -1,4 +1,6 @@
-{-# Language DataKinds, OverloadedStrings #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
@@ -20,17 +22,17 @@ import           Striot.FunctionalIoTtypes
 import           System.IO
 import           System.IO.Unsafe
 
-import Control.Concurrent
-import Control.Monad (when)
-import Control.Concurrent.STM
+import           Control.Concurrent
+import           Control.Concurrent.STM
+import           Control.Monad                 (when)
 
-import Data.Time (getCurrentTime)
-import Data.Text (Text)
-import Data.ByteString (ByteString, unpack)
-import Data.Char (chr)
-import Data.Maybe (isJust)
-import Data.Aeson
-import Data.List
+import           Data.Aeson
+import           Data.ByteString               (ByteString, unpack)
+import           Data.Char                     (chr)
+import           Data.List
+import           Data.Maybe                    (isJust)
+import           Data.Text                     (Text)
+import           Data.Time                     (getCurrentTime)
 
 ---------------------------------------------------
 
@@ -157,6 +159,16 @@ nodeSink2' sock1 sock2 streamOps iofn = do
     -- print "Close input handles"
     nodeSink2' sock1 sock2 streamOps iofn
 
+nodeSink2' :: (Read alpha, Read beta, Show gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> IO ()
+nodeSink2' sock1 sock2 streamOps iofn = do
+    (handle1, stream1) <- readEventStreamFromSocket sock1 -- read stream of Events from socket
+    (handle2, stream2) <- readEventStreamFromSocket sock2 -- read stream of Events from socket
+    let result = streamOps stream1 stream2     -- process stream
+    iofn result
+    hClose handle1
+    hClose handle2
+    -- print "Close input handles"
+    nodeSink2' sock1 sock2 streamOps iofn
 
 --- LINK FUNCTIONS ---
 
@@ -273,7 +285,7 @@ getMqttMsgByTopic :: Read alpha => TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.To
 getMqttMsgByTopic pubChan topic = do
     message <- atomically (readTChan pubChan) >>= handleMsgByTopic topic
     case message of
-        Just m -> return $ read m
+        Just m  -> return $ read m
         Nothing -> getMqttMsgByTopic pubChan topic
 
 handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String)
