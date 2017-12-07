@@ -41,6 +41,14 @@ nodeSink' sock streamOps iofn = do
     let result = streamOps stream
     iofn result
 
+nodeSink' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
+nodeSink' sock streamOps iofn = do
+                                   (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
+                                   let result = streamOps stream         -- process stream
+                                   iofn result
+                                   hClose handle
+                                   -- print "Closed input handle"
+                                   nodeSink' sock streamOps iofn
 
 -- A Sink with 2 inputs
 nodeSink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma), Show gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> PortNumber -> PortNumber -> IO ()
@@ -69,6 +77,14 @@ nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo 
     hFlush stdout
     nodeLink' sockIn streamGraph hostNameOutput portNumOutput
 
+nodeLink' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeLink' sock streamOps host port = do
+                             (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
+                             let result = streamOps stream  -- process stream
+                             sendStream result host port         -- to send stream to another node
+                             hClose handle
+                             -- print "Closed input handle"
+                             nodeLink' sock streamOps host port
 
 nodeLink' :: (FromJSON (Event alpha), ToJSON (Event beta), Show beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeLink' sock streamOps host port = do
@@ -110,8 +126,7 @@ nodeSource pay streamGraph host port = do
 
 ---- UTILITY FUNCTIONS ----
 
-
----- UTILITY FUNCTIONS ----
+--- UTILITY FUNCTIONS ---
 
 readListFromSource :: IO alpha -> IO (Stream alpha)
 readListFromSource = go 0
