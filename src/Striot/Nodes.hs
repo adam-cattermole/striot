@@ -77,14 +77,6 @@ nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo 
     hFlush stdout
     nodeLink' sockIn streamGraph hostNameOutput portNumOutput
 
-nodeLink' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
-nodeLink' sock streamOps host port = do
-                             (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
-                             let result = streamOps stream  -- process stream
-                             sendStream result host port         -- to send stream to another node
-                             hClose handle
-                             -- print "Closed input handle"
-                             nodeLink' sock streamOps host port
 
 nodeLink' :: (FromJSON (Event alpha), ToJSON (Event beta), Show beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeLink' sock streamOps host port = do
@@ -120,11 +112,6 @@ nodeSource pay streamGraph host port = do
     let result = streamGraph stream
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
-
---- UTILITY FUNCTIONS ---
-
-
----- UTILITY FUNCTIONS ----
 
 --- UTILITY FUNCTIONS ---
 
