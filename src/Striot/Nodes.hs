@@ -18,6 +18,20 @@ import           Network.Socket
 import           Striot.FunctionalIoTtypes
 import           System.IO
 import           System.IO.Unsafe
+<<<<<<< HEAD
+=======
+
+--- FOR MQTT SOURCE
+import qualified Network.MQTT as MQTT
+import Data.Text (Text)
+import Data.ByteString (ByteString)
+import Control.Concurrent.STM
+import System.Exit (exitFailure)
+
+--- FOR MQTT K8S
+import System.Environment
+import Data.String
+>>>>>>> Minor layout changes
 
 --- SINK FUNCTIONS ---
 
