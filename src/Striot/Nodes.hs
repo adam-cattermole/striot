@@ -35,6 +35,14 @@ nodeSink' sock streamOps iofn = do
     -- print "Closed input handle"
     nodeSink' sock streamOps iofn
 
+nodeSink' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
+nodeSink' sock streamOps iofn = do
+                                   (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
+                                   let result = streamOps stream         -- process stream
+                                   iofn result
+                                   hClose handle
+                                   -- print "Closed input handle"
+                                   nodeSink' sock streamOps iofn
 
 -- A Link with 2 inputs
 nodeSink2 :: (Read alpha, Read beta, Show gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> PortNumber -> PortNumber -> IO ()
@@ -60,13 +68,21 @@ nodeSink2' sock1 sock2 streamOps iofn = do
 
 --- LINK FUNCTIONS ---
 
-nodeLink :: (Read alpha, Show beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
+nodeLink :: Read alpha => Show beta => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
     sockIn <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting link ..."
     hFlush stdout
     nodeLink' sockIn streamGraph hostNameOutput portNumOutput
 
+nodeLink' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeLink' sock streamOps host port = do
+                             (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
+                             let result = streamOps stream  -- process stream
+                             sendStream result host port         -- to send stream to another node
+                             hClose handle
+                             -- print "Closed input handle"
+                             nodeLink' sock streamOps host port
 
 nodeLink' :: (Read alpha, Show beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeLink' sock streamOps host port = do
@@ -126,17 +142,17 @@ nodeLink2' sock1 sock2 streamOps host port = do
 
 nodeLink2' :: (Read alpha, Read beta, Show gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> PortNumber -> IO ()
 nodeLink2' sock1 sock2 streamOps host port = do
-    (inHdl1, stream1) <- readEventStreamFromSocket sock1
-    (inHdl2, stream2) <- readEventStreamFromSocket sock2
-    let result = streamOps stream1 stream2
-    sendStream result host port
-    hClose inHdl1
-    hClose inHdl2
-    print "Closed input handles"
-    nodeLink2' sock1 sock2 streamOps host port
+                                     (handle1, stream1) <- readEventStreamFromSocket sock1 -- read stream of Events from socket
+                                     (handle2, stream2) <- readEventStreamFromSocket sock2 -- read stream of Events from socket
+                                     let result = streamOps stream1 stream2 -- process stream
+                                     sendStream result host port                      -- to send stream to another node
+                                     hClose handle1
+                                     hClose handle2
+                                     -- print "Closed input handles"
+                                     nodeLink2' sock1 sock2 streamOps host port
 
 
----- SOURCE FUNCTIONS ----
+
 
 {-
 sendSource:: Show alpha => IO alpha -> IO ()
@@ -164,8 +180,7 @@ nodeSource pay streamGraph host port = do
 
 ---- UTILITY FUNCTIONS ----
 
-
----- UTILITY FUNCTIONS ----
+--- UTILITY FUNCTIONS ---
 
 readListFromSource :: IO alpha -> IO (Stream alpha)
 readListFromSource = go 0
