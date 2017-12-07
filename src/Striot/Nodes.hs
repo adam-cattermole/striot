@@ -21,7 +21,7 @@ import           System.IO
 import           System.IO.Unsafe
 
 import Control.Concurrent
-import Control.Monad
+import Control.Monad (when)
 import Control.Concurrent.STM
 
 import Data.Time (getCurrentTime)
@@ -30,6 +30,7 @@ import Data.ByteString (ByteString, unpack)
 import Data.Char (chr)
 import Data.Maybe (isJust)
 import Data.Aeson
+import Data.List
 
 ---------------------------------------------------
 
@@ -238,8 +239,8 @@ setupMqtt topics mqttHost = do
     pubChan <- newTChanIO
     cmds <- MQTT.mkCommands
     let conf = (MQTT.defaultConfig cmds pubChan)
-                  { MQTT.cHost = mqttHost
-                  , MQTT.cUsername = Just "mqtt-hs" }
+                 { MQTT.cHost = mqttHost
+                 , MQTT.cUsername = Just "mqtt-hs" }
 
     -- Attempt to subscribe to individual topics
     _ <- forkIO $ do
@@ -251,7 +252,7 @@ setupMqtt topics mqttHost = do
                 hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
                 exitFailure
 
-      -- this will throw IOExceptions
+    -- this will throw IOExceptions
     _ <- forkIO $ do
         terminated <- MQTT.run conf
         print terminated
