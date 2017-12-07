@@ -1,4 +1,5 @@
-{-# Language DataKinds, OverloadedStrings #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
@@ -18,6 +19,13 @@ import           Network.Socket
 import           Striot.FunctionalIoTtypes
 import           System.IO
 import           System.IO.Unsafe
+
+--- FOR MQTT source
+import           Control.Concurrent.STM
+import           Data.ByteString           (ByteString)
+import           Data.Text                 (Text)
+import qualified Network.MQTT              as MQTT
+import           System.Exit               (exitFailure)
 
 --- SINK FUNCTIONS ---
 
@@ -123,8 +131,11 @@ nodeSource pay streamGraph host port = do
     let result = streamGraph stream
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
+<<<<<<< HEAD
 
 --- UTILITY FUNCTIONS ---
+=======
+>>>>>>> Minor layout changes
 
 
 ----- START: MQTT SOURCE -----
@@ -177,7 +188,7 @@ getMqttMsgByTopic :: TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO Stri
 getMqttMsgByTopic pubChan topic = do
     message <- atomically (readTChan pubChan) >>= handleMsgByTopic topic
     case message of
-        Just m -> return m
+        Just m  -> return m
         Nothing -> getMqttMsgByTopic pubChan topic
 
 handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String)
