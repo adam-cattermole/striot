@@ -100,6 +100,43 @@ nodeLink2' sock1 sock2 streamOps host port = do
     nodeLink2' sock1 sock2 streamOps host port
 
 
+
+sendStream' :: Show alpha => Stream alpha -> HostName -> PortNumber -> IO ()
+sendStream' [] host port = return ()
+sendStream' stream@(h:t) host port = withSocketsDo $ do
+    hdl <- connectTo host (PortNumber port)
+    hSetBuffering hdl NoBuffering
+    print "Open output connection"
+    hPutLines' hdl stream -- THIS SHOULD BLOCK UNTIL THE CONNECTION CLOSES
+
+
+hPutLines' :: Show alpha => Handle -> Stream alpha -> IO ()
+hPutLines' handle [] = do
+    hClose handle
+    print "Closed output handle"
+    return ()
+hPutLines' handle (h:t) = do
+    writeable <- hIsWritable handle
+    open <- hIsOpen handle
+    when (open && writeable) $
+        do
+            -- print h
+            hPrint handle h
+            hPutLines' handle t
+
+{-
+hPutLines'' :: Show alpha => Handle -> Stream alpha -> IO ()
+hPutLines'' handle [] = return ()
+hPutLines'' handle (h:t) = do
+    writeable <- hIsWritable handle
+    open <- hIsOpen handle
+    when (open && writeable) $
+        do
+            -- print h
+            hPrint handle h
+            hPutLines' handle t
+-}
+
 {-
 sendSource:: Show alpha => IO alpha -> IO ()
 sendSource pay       = withSocketsDo $ do
