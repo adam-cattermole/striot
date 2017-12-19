@@ -51,14 +51,16 @@ nodeLinkWhisk' :: Read alpha => (Show beta, Read beta) => Socket -> (Stream alph
 nodeLinkWhisk' sock fn host port = do
     activationChan <- newTChanIO
     outputChan <- newTChanIO
-    stream <- readListFromSocket sock   -- read stream of Strings from socket
+    (handle, stream) <- readEventStreamFromSocket sock   -- read stream of Strings from socket
     _ <- forkIO $ forever $ handleActivations activationChan outputChan
-    let eventStream = map read stream
-    let output = fn eventStream
+    let output = fn stream
     -- Result is generated and continually recurses while sendStream recursively
     -- sends the output onwards
     result <- whiskRunner output activationChan outputChan
     sendStream result host port
+
+    hClose handle
+    nodeLinkWhisk' sock fn host port
 
 
 whiskRunner :: (Show alpha, Read alpha) => Stream alpha -> TChan Text -> TChan (Event alpha) -> IO (Stream alpha)
