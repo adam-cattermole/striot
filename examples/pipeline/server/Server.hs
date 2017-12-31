@@ -18,6 +18,7 @@ main :: IO ()
 main = do
     writeFile "sw-log.txt" ""
     nodeSink kaliParse printStreamDelay listenPort
+    -- nodeSink streamGraphid printStream listenPort
 
 streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
@@ -53,7 +54,7 @@ printStreamDelay (e:r) = do
     printStreamDelay r
 printStreamDelay [] = return ()
 
-printStream :: Stream Int -> IO ()
+printStream :: Stream String -> IO ()
 printStream (e:r) = do
     print e
     printStream r

@@ -7,7 +7,7 @@ import Network
 
 listenPort =  9002 :: PortNumber
 connectPort = 9001 :: PortNumber
-connectHost = "127.0.0.1" :: HostName
+connectHost = "haskellserver" :: HostName
 
 main :: IO ()
 main = nodeLink streamGraphid listenPort connectHost connectPort
