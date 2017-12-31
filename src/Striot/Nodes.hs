@@ -93,6 +93,7 @@ nodeLink2' sock1 sock2 streamOps host port = do
 nodeSource :: Show beta => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeSource pay streamGraph host port = do
     stream <- readListFromSource pay
+    putStrLn "Starting source ..."
     let result = streamGraph stream
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
