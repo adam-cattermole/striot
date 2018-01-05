@@ -22,7 +22,7 @@ import           System.IO.Unsafe
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Monad                 (when)
+import           Control.Monad                 (when, forever)
 
 import           Data.Aeson
 import           Data.ByteString               (ByteString, unpack)

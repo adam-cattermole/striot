@@ -13,7 +13,7 @@ connectHost = "haskellserver" :: HostName
 main :: IO ()
 main = nodeLinkWhisk streamGraphid listenPort connectHost connectPort
 
-streamGraphid :: Stream (Int, Int) -> Stream (Int, Int)
+streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
 
 streamGraph1 :: Stream Int -> Stream [Int]
