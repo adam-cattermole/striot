@@ -27,7 +27,7 @@ runner fun = do
     -- print output
 
     -- Grab command line args and error if there are none
-    args <- getArgs
+    args <- getArgs'
     print $ head args
     when (null args) $ error "No arguments passed in!"
     let input = fetchInput $ head args
@@ -43,8 +43,9 @@ runner fun = do
 
 
 
--- getArgs' :: IO [String]
--- getArgs' = return ["{\\\"body\\\": \\\"[1.6e-2,0.144,-0.992]\\\", \\\"uid\\\": 8, \\\"timestamp\\\": \\\"2017-10-04 15:08:52.79031279 UTC\\\"}\""]
+getArgs' :: IO [String]
+getArgs' = return ["{\\\"body\\\": \\\"\\\\\\\"TCPKaliMsgTS-0005620a83d91718.\\\\\\\"\\\", \\\"uid\\\": 1, \\\"timestamp\\\": \\\"2017-11-21 16:30:00 UTC\\\"}\""]
+
 
 
 fetchInput :: (Read alpha) => String -> Maybe (Event alpha)
@@ -53,4 +54,4 @@ fetchInput arg =
     in decodeEvent bs
 
 fixInputString :: String -> Text
-fixInputString s = replace "}\"" "}" . replace "\"{" "{" . replace "\\" "" $ pack s
+fixInputString s = replace "}\"" "}" . replace "\"{" "{" . replace "\\\\" "\\" . replace "\\\"" "\"" $ pack s

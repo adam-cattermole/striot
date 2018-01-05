@@ -64,6 +64,8 @@ nodeLinkWhisk' sock fn host port = do
 
 
 whiskRunner :: (Show alpha, Read alpha) => Stream alpha -> TChan Text -> TChan (Event alpha) -> IO (Stream alpha)
+whiskRunner [] activationChan outputChan = do
+    return []
 whiskRunner (e:r) activationChan outputChan = do
     -- Activate and add to TChan
     actId <- invokeAction e
