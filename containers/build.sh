@@ -1,6 +1,6 @@
 #!/bin/bash
 
-prefix=${prefix-sjwoodman}
+prefix=${prefix-adamcattermole}
 
 echo "Copying Striot"
 mkdir -p striot-base/striot/src
