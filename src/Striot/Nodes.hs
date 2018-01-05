@@ -49,14 +49,14 @@ nodeLinkWhisk fn portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
 
 nodeLinkWhisk' :: Read alpha => (Show beta, Read beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeLinkWhisk' sock fn host port = do
-    activationChan <- newTChanIO
-    outputChan <- newTChanIO
+    -- activationChan <- newTChanIO
+    -- outputChan <- newTChanIO
     (handle, stream) <- readEventStreamFromSocket sock   -- read stream of Strings from socket
-    _ <- forkIO $ forever $ handleActivations activationChan outputChan
+    -- _ <- forkIO $ forever $ handleActivations activationChan outputChan
     let output = fn stream
     -- Result is generated and continually recurses while sendStream recursively
     -- sends the output onwards
-    result <- whiskRunner output activationChan outputChan
+    result <- whiskRunner' output
     sendStream result host port
 
     hClose handle
@@ -83,6 +83,26 @@ whiskRunner (e:r) activationChan outputChan = do
             else
                 whiskRunner r activationChan outputChan
 
+whiskRunner' :: (Show alpha, Read alpha) => Stream alpha -> IO (Stream alpha)
+whiskRunner' (e:r) = System.IO.Unsafe.unsafeInterleaveIO $ do
+    actId <- invokeAction e
+    eJson <- getActivationRetry 60 actId
+    let x = fromEventJson eJson
+    xs <- whiskRunner' r
+    return (x:xs)
+
+
+-- hGetLines' :: Handle -> IO [String]
+-- hGetLines' handle = System.IO.Unsafe.unsafeInterleaveIO $ do
+--     readable <- hIsReadable handle
+--     eof <- hIsEOF handle
+--     if not eof && readable
+--         then do
+--             x <- hGetLine handle
+--             xs <- hGetLines' handle
+--             -- print x
+--             return (x:xs)
+--      else return []
 
 handleActivations :: (Read alpha) => TChan Text -> TChan (Event alpha) -> IO ()
 handleActivations activationChan outputChan = do
