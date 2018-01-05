@@ -84,12 +84,20 @@ whiskRunner (e:r) activationChan outputChan = do
                 whiskRunner r activationChan outputChan
 
 whiskRunner' :: (Show alpha, Read alpha) => Stream alpha -> IO (Stream alpha)
+whiskRunner' [] = return []
+whiskRunner' [e] = System.IO.Unsafe.unsafeInterleaveIO $ do
+    x <- whiskRunner'' e
+    return [x]
 whiskRunner' (e:r) = System.IO.Unsafe.unsafeInterleaveIO $ do
-    actId <- invokeAction e
-    eJson <- getActivationRetry 60 actId
-    let x = fromEventJson eJson
+    x <- whiskRunner'' e
     xs <- whiskRunner' r
     return (x:xs)
+
+whiskRunner'' :: (Show alpha, Read alpha) => Event alpha -> IO (Event alpha)
+whiskRunner'' e = do
+    actId <- invokeAction e
+    eJson <- getActivationRetry 60 actId
+    return $ fromEventJson eJson
 
 
 -- hGetLines' :: Handle -> IO [String]
