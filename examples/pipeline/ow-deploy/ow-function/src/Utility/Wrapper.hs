@@ -7,6 +7,8 @@ runner
 
 import System.Environment
 
+import Text.ParserCombinators.ReadP
+import qualified Data.Text as T2 (unpack)
 import qualified Data.Text.Lazy.Encoding as T
 import Data.Text.Lazy (Text, replace, pack)
 import qualified Data.ByteString.Lazy.Char8 as Char8 (ByteString, unpack, putStrLn)
@@ -27,8 +29,7 @@ runner fun = do
     -- print output
 
     -- Grab command line args and error if there are none
-    args <- getArgs'
-    print $ head args
+    args <- getArgs
     when (null args) $ error "No arguments passed in!"
     let input = fetchInput $ head args
     case input of
@@ -37,15 +38,13 @@ runner fun = do
             Char8.putStrLn $ encodeEvent output
         Nothing ->
             error "wsk-error: Failed to convert input to JSON"
-    --
-    -- print "test"
-    -- print "output"
 
 
-
-getArgs' :: IO [String]
-getArgs' = return ["{\\\"body\\\": \\\"\\\\\\\"TCPKaliMsgTS-0005620a83d91718.\\\\\\\"\\\", \\\"uid\\\": 1, \\\"timestamp\\\": \\\"2017-11-21 16:30:00 UTC\\\"}\""]
-
+-- test function
+-- getArgs' :: IO [String]
+-- getArgs' = return ["{\\\"body\\\": \\\"\\\"TCPKaliMsgTS-0005620b3b698a79.\\\"\\\", \\\"uid\\\": 1, \\\"timestamp\\\": \\\"2017-11-21 16:30:00 UTC\\\"}"]
+-- getArgs' = return ["{\\\"body\\\": \\\"[1.6e-2,0.144,-0.992]\\\", \\\"uid\\\": 8, \\\"timestamp\\\": \\\"2017-10-04 15:08:52.79031279 UTC\\\"}\""]
+-- getArgs' = return ["\"{\\\\\\\"body\\\\\\\": \\\\\\\"\\\\\\\\\\\\\\\"TCPKaliMsgTS-0005620a83d91718.\\\\\\\\\\\\\\\"\\\\\\\", \\\\\\\"uid\\\\\\\": 1, \\\\\\\"timestamp\\\\\\\": \\\\\\\"2017-11-21 16:30:00 UTC\\\\\\\"}\\\"\""]
 
 
 fetchInput :: (Read alpha) => String -> Maybe (Event alpha)
@@ -53,5 +52,19 @@ fetchInput arg =
     let bs = T.encodeUtf8 . fixInputString $ arg
     in decodeEvent bs
 
+-- This is pretty hacky, need to find a better solution here
 fixInputString :: String -> Text
-fixInputString s = replace "}\"" "}" . replace "\"{" "{" . replace "\\\\" "\\" . replace "\\\"" "\"" $ pack s
+fixInputString s = replace "\"\"," "\\\"\"," . replace " \"\"" " \"\\\"" . replace "}\"" "}" . replace "\"{" "{" . replace "\\\"" "\"" $ pack s
+
+
+
+
+-- eventParse =
+    -- keyValParse*3
+-- fixInputString' :: String -> String -> Int -> String
+-- fixInputString' (x:xs) output flag
+--     | flag == 0 =
+--         if x /= '\\'
+--             then fixInputString' xs (output ++ [x]) 0
+--             else fixInputString' xs output 1
+--     | flag == 1 =
