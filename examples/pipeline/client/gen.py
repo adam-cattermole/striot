@@ -36,7 +36,7 @@ def main():
         logging.info("Iteration {}:".format(i))
         run_iteration(client, i)
     # client.close()
-    time.sleep(60)
+    time.sleep(600)
 
 
 
