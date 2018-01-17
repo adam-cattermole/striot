@@ -13,9 +13,8 @@ RATE = 1
 RESULTS_HOST = os.environ["HASKELL_SERVER_SERVICE_HOST"]
 LOG_PATH = "/opt/server/sw-log.txt"
 
-RATES = [1, 5, 10, 20, 50, 100, 200, 500, 1000, 10000, 50000, 100000, 500000,
-         1000000]
-# RATES = [1]
+RATES = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
+# RATES = [1, 5]
 
 # HOSTNAME = "127.0.0.1:9002"
 HOSTNAME = "{}:9002".format(os.environ["HASKELL_CLIENT2_SERVICE_HOST"])
@@ -37,7 +36,7 @@ def main():
         logging.info("Iteration {}:".format(i))
         run_iteration(client, i)
     # client.close()
-    time.sleep(3000)
+    time.sleep(60)
 
 
 

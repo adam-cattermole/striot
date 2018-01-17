@@ -9,6 +9,8 @@ RUN apt-get update && \
     bison \
     flex
 
+RUN pip install paramiko
+
 RUN git clone https://github.com/satori-com/tcpkali.git
 
 WORKDIR tcpkali
@@ -23,7 +25,6 @@ WORKDIR /opt/client
 # Add and Install Application Code
 COPY . /opt/client
 
-RUN pip install paramiko
 # Compile
 # RUN ghc Client.hs
 
