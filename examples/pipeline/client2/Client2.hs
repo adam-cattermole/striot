@@ -4,19 +4,21 @@ import Striot.FunctionalProcessing
 import Striot.FunctionalIoTtypes
 import Striot.Nodes
 import Network
+import Control.DeepSeq
 
 listenPort =  9001 :: PortNumber
 connectPort = 9001 :: PortNumber
 connectHost = "haskellserver" :: HostName
 
 main :: IO ()
-main = nodeLink streamGraphid listenPort connectHost connectPort
+main = nodeLink streamGraphLoad listenPort connectHost connectPort
 
 streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
 
--- streamGraph1 :: Stream Int -> Stream [Int]
--- streamGraph1 = streamWindowAggregate (slidingTime 1) fn
+streamGraphLoad :: Stream String -> Stream String
+streamGraphLoad = streamMap (\x -> factorial 213000 `deepseq` x)
 
--- fn :: [Int] -> [Int]
--- fn ys@(x:xs) = [x, length ys]
+factorial :: Integer -> Integer
+factorial 0 = 1
+factorial n = n * factorial (n - 1)
