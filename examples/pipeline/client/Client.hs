@@ -15,14 +15,26 @@ hostName = "haskellclient2"::HostName
 
 main :: IO ()
 main = do
-         let start = 1
-             rate  = 20000
-             swrate = 100
-         indexVar <- newTVarIO start
-         messageVar <- newTVarIO start
+         -- let start = 1
+             -- rate  = 20000
+             -- swrate = 100
+         -- indexVar <- newTVarIO start
+         -- messageVar <- newTVarIO start
          threadDelay (1 * 1000 * 1000)
-         _ <- forkIO $ generator2 indexVar messageVar rate rates
-         nodeSource (src1 indexVar messageVar) streamGraph2 hostName portNum -- processes source before sending it to another node
+         -- _ <- forkIO $ generator2 indexVar messageVar rate rates
+         -- nodeSource (src1 indexVar messageVar) streamGraph2 hostName portNum -- processes source before sending it to another node
+         nodeSource src2 streamGraph1 hostName portNum
+
+src2:: IO String
+src2 = clockStreamNamed "TCPKaliMsgTS-0005620b16f909f3." 1000
+
+clockStreamNamed:: String -> Int -> IO String -- returns the (next) payload to be added into an event and sent to a server
+clockStreamNamed message period = do -- period is in ms
+    threadDelay (period*1000)
+    return message
+
+streamGraph1 :: Stream String -> Stream String
+streamGraph1 = Prelude.id
 
 streamGraph2 :: Stream (Int, Int) -> Stream (Int, Int)
 streamGraph2 = Prelude.id
