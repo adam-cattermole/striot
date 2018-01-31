@@ -22,8 +22,8 @@ main = do
 streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
 
-kaliParse :: Stream String -> Stream UTCTime
-kaliParse = streamMap (\x -> posixSecondsToUTCTime . fromRational $ fst (head (kaliParse' x)) / 1000000)
+kaliParse :: Stream (String, String) -> Stream (String, UTCTime)
+kaliParse = streamMap (\x -> (fst x, posixSecondsToUTCTime . fromRational $ fst (head (kaliParse' $ snd x)) / 1000000))
 
 kaliParse' x = readHex $ filter (/='.') (splitOn "-" x !! 1)
 
@@ -41,10 +41,10 @@ kaliParse' x = readHex $ filter (/='.') (splitOn "-" x !! 1)
 averageVal :: Int -> [Int] -> Int
 averageVal l xs = sum xs `div` l
 
-printStreamDelay :: Stream UTCTime -> IO ()
-printStreamDelay (e@(E id t v):r) = do
+printStreamDelay :: Stream (String, UTCTime) -> IO ()
+printStreamDelay (e@(E id t (pod,v)):r) = do
     now <- getCurrentTime
-    let newe = mapTimeDelay delay e where delay = diffUTCTime now v
+    let newe = mapTimeDelay e now
     print newe
     appendFile "sw-log.txt" (show newe ++ "\n")
     printStreamDelay r
@@ -58,9 +58,11 @@ printStream (e:r) = do
     print e
     printStream r
 
-mapTimeDelay :: NominalDiffTime -> Event UTCTime -> Event (UTCTime, Float)
-mapTimeDelay delay (E id t v) = E id t newv
-    where newv = (v, roundN 10 (toRational delay))
+mapTimeDelay :: Event (String, UTCTime) -> UTCTime -> Event (String, UTCTime, Float)
+mapTimeDelay (E id t (pod,v)) now = E id t newv
+    where
+        delay = diffUTCTime now v
+        newv = (pod, v, roundN 10 (toRational delay))
 
 roundN :: Int -> Rational -> Float
 roundN n f = fromInteger (round $ f * (10^n)) / (10.0^^n)
