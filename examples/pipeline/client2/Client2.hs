@@ -19,9 +19,6 @@ main = do
 streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
 
-streamGraphid :: Stream String -> Stream String
-streamGraphid = Prelude.id
-
 streamGraphLoad :: Stream String -> Stream String
 streamGraphLoad = streamMap (\x -> factorial 213000 `deepseq` x)
 
