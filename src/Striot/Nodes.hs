@@ -18,8 +18,6 @@ import           Network.Socket
 import           Striot.FunctionalIoTtypes
 import           System.IO
 import           System.IO.Unsafe
-<<<<<<< HEAD
-=======
 
 --- FOR MQTT SOURCE
 import qualified Network.MQTT as MQTT
@@ -31,7 +29,6 @@ import System.Exit (exitFailure)
 --- FOR MQTT K8S
 import System.Environment
 import Data.String
->>>>>>> Minor layout changes
 
 --- SINK FUNCTIONS ---
 
@@ -137,6 +134,84 @@ nodeSource pay streamGraph host port = do
     let result = streamGraph stream
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
+
+
+----- START: MQTT SOURCE -----
+
+nodeMqttSource :: Show beta => HostName -> [MQTT.Topic] -> (Stream String -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeMqttSource mqttHost topics fn host port = do
+   pubChan <- setupMqtt topics mqttHost
+   nodeSource (getMqttMsg pubChan) fn host port
+
+nodeMqttByTopicSource :: Show beta => HostName -> [MQTT.Topic] -> MQTT.Topic -> (Stream String -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeMqttByTopicSource mqttHost topics selectT fn host port = do
+   pubChan <- setupMqtt topics mqttHost
+   nodeSource (getMqttMsgByTopic pubChan selectT) fn host port
+
+-- TChan (MQTT.Message 'MQTT.PUBLISH) ->
+setupMqtt :: [MQTT.Topic] -> HostName -> IO (TChan (MQTT.Message 'MQTT.PUBLISH))
+setupMqtt topics mqttHost = do
+   podName <- lookupEnv "HOSTNAME"
+   pubChan <- newTChanIO
+   cmds <- MQTT.mkCommands
+   let conf = case podName of
+           Nothing -> (MQTT.defaultConfig cmds pubChan)
+                           { MQTT.cHost = mqttHost
+                           , MQTT.cUsername = Just "mqtt-hs"
+                           , MQTT.cClientID = "mqtt-haskell"}
+           Just pn -> (MQTT.defaultConfig cmds pubChan)
+                           { MQTT.cHost = mqttHost
+                           , MQTT.cUsername = Just $ fromString pn
+                           , MQTT.cClientID = fromString $ "mqtt-haskell_" ++ pn}
+
+   -- Attempt to subscribe to individual topics
+   _ <- forkIO $ do
+       qosGranted <- MQTT.subscribe conf $ map (\x -> (x, MQTT.Handshake)) topics
+       case qosGranted of
+           hs -> putStrLn "Topic Handshake Success!" -- forever $ atomically (readTChan pubChan) >>= handleMsg
+               where hs = map (const MQTT.Handshake) topics
+           _ -> do
+               hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
+               exitFailure
+
+     -- this will throw IOExceptions
+   _ <- forkIO $ do
+       terminated <- MQTT.run conf
+       print terminated
+   threadDelay (1 * 1000 * 1000)
+   return pubChan
+
+getMqttMsg :: TChan (MQTT.Message 'MQTT.PUBLISH) -> IO String
+getMqttMsg pubChan = atomically (readTChan pubChan) >>= handleMsg
+
+handleMsg :: MQTT.Message 'MQTT.PUBLISH -> IO String
+handleMsg msg =
+   let (t,p,l) = extractMsg msg
+   in return $ read (show t) ++ " " ++ read (show p)
+
+getMqttMsgByTopic :: TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO String
+getMqttMsgByTopic pubChan topic = do
+   message <- atomically (readTChan pubChan) >>= handleMsgByTopic topic
+   case message of
+       Just m -> return m
+       Nothing -> getMqttMsgByTopic pubChan topic
+
+handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String)
+handleMsgByTopic topic msg =
+   let (t,p,l) = extractMsg msg
+   in if topic == t then
+       return $ Just $ read (show t) ++ " " ++ read (show p)
+   else
+       return Nothing
+
+extractMsg :: MQTT.Message 'MQTT.PUBLISH -> (MQTT.Topic, ByteString, [Text])
+extractMsg msg =
+   let t = MQTT.topic $ MQTT.body msg
+       p = MQTT.payload $ MQTT.body msg
+       l = MQTT.getLevels t
+   in (t,p,l)
+
+----- END: MQTT SOURCE -----
 
 --- UTILITY FUNCTIONS ---
 
