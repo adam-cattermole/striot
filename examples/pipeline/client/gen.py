@@ -9,7 +9,7 @@ ITERATIONS = 5
 TEST_LENGTH = 30
 RATE = 1
 
-# USERNAME = "azure"
+USERNAME = "azure"
 RESULTS_HOST = os.environ["HASKELL_SERVER_SERVICE_HOST"]
 LOG_PATH = "/opt/server/sw-log.txt"
 
@@ -27,18 +27,16 @@ logging.basicConfig(level=logging.INFO,
 
 def main():
     logging.info("Start")
-    # client = paramiko.SSHClient()
-    # client.load_system_host_keys()
-    # client.set_missing_host_key_policy(paramiko.WarningPolicy())
-    # client.connect(hostname=RESULTS_HOST, username=USERNAME)
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
+    client.connect(hostname=RESULTS_HOST, username=USERNAME)
     client = None
     for i in range(1, ITERATIONS+1):
         logging.info("Iteration {}:".format(i))
         run_iteration(client, i)
-    # client.close()
+    client.close()
     time.sleep(600)
-
-
 
 
 def run_iteration(ssh_client, iteration):
@@ -49,11 +47,11 @@ def run_iteration(ssh_client, iteration):
         f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
         runner = TCPKaliRunner(rate, f_name)
         runner.run()
-    # sftp = ssh_client.open_sftp()
-    # sftp.get(LOG_PATH,
-             # "{}/serial-log.txt".format(currdir))
-    # sftp.remove(LOG_PATH)
-    # sftp.close()
+    sftp = ssh_client.open_sftp()
+    sftp.get(LOG_PATH,
+             "{}/serial-log.txt".format(currdir))
+    sftp.remove(LOG_PATH)
+    sftp.close()
 
 
 class TCPKaliRunner():

@@ -1,17 +1,20 @@
 --import Control.Concurrent
-import System.IO
-import Striot.FunctionalProcessing
-import Striot.FunctionalIoTtypes
-import Striot.Nodes
-import Network
-import Control.DeepSeq
+import           Network
+import           Striot.FunctionalIoTtypes
+import           Striot.FunctionalProcessing
+import           Striot.Nodes
+
+import           Control.DeepSeq
+import           System.Environment
 
 listenPort =  9002 :: PortNumber
 connectPort = 9001 :: PortNumber
-connectHost = "haskellserver" :: HostName
+-- connectHost = "haskellserver" :: HostName
 
 main :: IO ()
-main = nodeLink streamGraphLoad listenPort connectHost connectPort
+main = do
+    connectHost <- getEnv "HASKELL_SERVER_SERVICE_HOST"
+    nodeLink streamGraphid listenPort connectHost connectPort
 
 streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
