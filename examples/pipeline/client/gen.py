@@ -31,15 +31,14 @@ def main():
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.WarningPolicy())
     client.connect(hostname=RESULTS_HOST, username=USERNAME)
-    client = None
     for i in range(1, ITERATIONS+1):
         logging.info("Iteration {}:".format(i))
-        run_iteration(client, i)
+        run_iteration(i, client)
     client.close()
     time.sleep(600)
 
 
-def run_iteration(ssh_client, iteration):
+def run_iteration(iteration, ssh_client=None):
     currdir = "iter{}".format(iteration)
     if not os.path.exists(currdir):
         os.makedirs(currdir)
@@ -47,6 +46,7 @@ def run_iteration(ssh_client, iteration):
         f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
         runner = TCPKaliRunner(rate, f_name)
         runner.run()
+    time.sleep(30)
     sftp = ssh_client.open_sftp()
     sftp.get(LOG_PATH,
              "{}/serial-log.txt".format(currdir))
