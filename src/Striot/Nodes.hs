@@ -41,14 +41,6 @@ nodeSink' sock streamOps iofn = do
     let result = streamOps stream
     iofn result
 
-nodeSink' :: Read alpha => Show beta => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
-nodeSink' sock streamOps iofn = do
-                                   (handle, stream) <- readEventStreamFromSocket sock -- read stream of Events from socket
-                                   let result = streamOps stream         -- process stream
-                                   iofn result
-                                   hClose handle
-                                   -- print "Closed input handle"
-                                   nodeSink' sock streamOps iofn
 
 -- A Sink with 2 inputs
 nodeSink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma), Show gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> PortNumber -> PortNumber -> IO ()
@@ -109,7 +101,6 @@ nodeSource :: (ToJSON (Event beta), Show beta) => IO alpha -> (Stream alpha -> S
 nodeSource pay streamGraph host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
-    putStrLn "Starting source ..."
     let result = streamGraph stream
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
