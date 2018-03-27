@@ -7,6 +7,9 @@ import           Striot.Nodes
 import           Control.DeepSeq
 import           System.Environment
 
+import           Control.DeepSeq
+import           System.Environment
+
 listenPort =  9001 :: PortNumber
 connectPort = 9001 :: PortNumber
 -- connectHost = "haskellserver" :: HostName
