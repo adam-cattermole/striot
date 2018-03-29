@@ -6,14 +6,14 @@ module Striot.Nodes ( nodeSink
                     ) where
 
 import           Control.Concurrent
-import           Control.Concurrent.STM
 import           Control.Concurrent.Chan.Unagi as U
-import           Control.Monad             (forever, when)
+import           Control.Concurrent.STM
+import           Control.Monad                 (forever, when)
 import           Data.List
-import           Data.Time                 (getCurrentTime)
-import           Network                   (PortID (PortNumber), connectTo,
-                                            listenOn)
-import           Network.Socket
+import           Data.Time                     (getCurrentTime)
+import           Network                       (PortID (PortNumber), accept,
+                                                connectTo, listenOn)
+import           Network.Socket                hiding (accept)
 import           Striot.FunctionalIoTtypes
 import           System.IO
 import           System.IO.Unsafe
@@ -122,6 +122,8 @@ processSocket sock = do
     eventChan <- acceptConnections sock
     readEventsTChan eventChan
 
+processSocket' :: Read alpha => Socket -> IO (Stream alpha)
+processSocket' sock = acceptConnections sock >>= readEventsTChan
 
 {- acceptConnections takes a socket as an argument and spins up a new thread to
 process the data received. The returned TChan object contains the data from
@@ -140,8 +142,8 @@ to ensure the thread closes the handle before it exits -}
 connectionHandler :: Read alpha => Socket -> U.InChan (Event alpha) -> IO ()
 connectionHandler sockIn eventChan = forever $ do
     -- putStrLn "Awaiting new connection"
-    (sock, _) <- accept sockIn
-    hdl       <- socketToHandle sock ReadWriteMode
+    (hdl, _, _) <- accept sockIn
+    -- hdl       <- socketToHandle sock ReadWriteMode
     -- putStrLn "Forking to process new connection"
     forkFinally   (processHandle hdl eventChan) (\_ -> hClose hdl)
 
@@ -183,8 +185,8 @@ readListFromSocket sock = do
 
 readListFromSocket' :: Socket -> IO (Handle, [String])
 readListFromSocket' sockIn = do
-    (sock, _) <- accept sockIn
-    hdl       <- socketToHandle sock ReadWriteMode
+    (hdl, _, _) <- accept sockIn
+    -- hdl       <- socketToHandle sock ReadWriteMode
     -- print "Open input connection"
     stream <- hGetLines' hdl
     return (hdl, stream)
@@ -198,7 +200,7 @@ readEventStreamFromSocket sock = do
 
 
 sendStream :: Show alpha => Stream alpha -> HostName -> PortNumber -> IO ()
-sendStream []     host port = return ()
+sendStream []     _ _ = return ()
 sendStream stream host port = withSocketsDo $ do
     handle <- connectTo host (PortNumber port)
     -- print "Open output connection"
