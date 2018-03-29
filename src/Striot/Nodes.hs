@@ -209,9 +209,8 @@ sendStream stream host port = withSocketsDo $ do
 is deferred lazily until the values are requested -}
 hGetLines' :: Handle -> IO [String]
 hGetLines' handle = System.IO.Unsafe.unsafeInterleaveIO $ do
-    readable <- hIsReadable handle
     eof      <- hIsEOF handle
-    if not eof && readable
+    if not eof
         then do
             x  <- hGetLine handle
             xs <- hGetLines' handle
@@ -226,9 +225,6 @@ hPutLines' handle [] = do
     -- print "Closed output handle"
     return ()
 hPutLines' handle (x:xs) = do
-    writeable <- hIsWritable handle
-    open      <- hIsOpen handle
-    when (open && writeable) $ do
-            -- print h
-        hPrint     handle x
-        hPutLines' handle xs
+    -- print h
+    hPrint     handle x
+    hPutLines' handle xs
