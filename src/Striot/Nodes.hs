@@ -153,7 +153,7 @@ processHandle :: Read alpha => Handle -> U.InChan (Event alpha) -> IO ()
 processHandle handle eventChan = do
     stringStream <- hGetLines' handle
     let eventStream = map read stringStream
-    writeEventsTChan eventStream eventChan
+    U.writeList2Chan eventChan eventStream
 
 
 {- writeEventsTChan takes a TChan and Stream of the same type, and recursively
