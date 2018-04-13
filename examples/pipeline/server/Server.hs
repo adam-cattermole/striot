@@ -26,6 +26,7 @@ streamGraphid = Prelude.id
 kaliParse :: Stream String -> Stream UTCTime
 kaliParse = streamMap (\x -> posixSecondsToUTCTime . fromRational $ fst (head (kaliParse' x)) / 1000000)
 
+kaliParse' :: (Num a, Eq a) => String -> [(a, String)]
 kaliParse' x = readHex $ filter (/='.') (splitOn "-" x !! 1)
 
 -- streamGraph1 :: Stream Int -> Stream [Int]
