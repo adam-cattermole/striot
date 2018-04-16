@@ -5,19 +5,22 @@ import logging
 import paramiko
 import os
 
+EVENT_TYPE_NORMAL = 0
+EVENT_TYPE_AESON = 1
+
 ITERATIONS = 5
 TEST_LENGTH = 30
 RATE = 1
 
 USERNAME = "azure"
 RESULTS_HOST = os.environ["HASKELL_SERVER_SERVICE_HOST"]
-LOG_PATH = "/opt/server/sw-log.txt"
+LOG_PATH = "/home/azure/striot/examples/pipeline/server/sw-log.txt"
 
 RATES = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
 # RATES = [1, 5]
 
 # HOSTNAME = "127.0.0.1:9002"
-HOSTNAME = "{}:9002".format(os.environ["HASKELL_CLIENT2_SERVICE_HOST"])
+HOSTNAME = "{}:9001".format(os.environ["HASKELL_CLIENT2_SERVICE_HOST"])
 
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s)[%(levelname)-8s] '
@@ -64,9 +67,7 @@ class TCPKaliRunner():
         logging.info('Running with rate {}hz'.format(self.rate))
         with open(self.file, 'w') as open_file:
             subprocess.run(["tcpkali", "-em",
-                            "E {{id = {}, ".format(self.rate) +
-                            "time = 2017-11-21 16:30:00.000000 UTC, "
-                            "value = \"\{message.marker}\"}\n",
+                            self.event(EVENT_TYPE_AESON, id=self.rate),
                             "-r{}".format(self.rate),
                             "--dump-all",
                             "--nagle=off",
@@ -76,7 +77,18 @@ class TCPKaliRunner():
                            stderr=open_file,
                            stdout=open_file)
 
-# tcpkali -em "E {id = 0, time = 2017-11-21 16:30:00.000000 UTC, value = (1,1)}\n" -r 1 --dump-all haskell-client2.eastus.cloudapp.azure.com:9002
+    def event(self, type, id):
+        if type == EVENT_TYPE_NORMAL:
+            return ("E {{id = {}, ".format(id) +
+                    "time = 2017-11-21 16:30:00.000000 UTC, " +
+                    "value = \"\{message.marker}\"}\n")
+        elif type == EVENT_TYPE_AESON:
+            return ("{\"tag\":\"E\"," +
+                    "\"id\":{},".format(id) +
+                    "\"time\":\"2017-11-21T16:30:00.000000Z\"," +
+                    "\"value\":\"\{message.marker}\"}\n")
+        else:
+            return ""
 
 
 if __name__ == '__main__':
