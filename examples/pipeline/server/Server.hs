@@ -1,4 +1,5 @@
 import System.IO
+import System.IO.Unsafe (unsafeInterleaveIO)
 import Data.List
 
 import Striot.FunctionalProcessing
@@ -26,7 +27,7 @@ streamGraphid = Prelude.id
 kaliParse :: Stream String -> Stream UTCTime
 kaliParse = streamMap (\x -> posixSecondsToUTCTime . fromRational $ fst (head (kaliParse' x)) / 1000000)
 
-kaliParse' x = readHex $ filter (/='.') (splitOn "-" x !! 1)
+kaliParse' x = readHex $ take 16 (drop 13 x)
 
 -- streamGraph1 :: Stream Int -> Stream [Int]
 -- streamGraph1= streamWindowAggregate (chopTime 1) fn
@@ -43,16 +44,30 @@ averageVal :: Int -> [Int] -> Int
 averageVal l xs = sum xs `div` l
 
 printStreamDelay :: Stream UTCTime -> IO ()
-printStreamDelay (e@(E id t v):r) = do
+printStreamDelay stream = do
+    hdl <- openFile "sw-log.txt" WriteMode
+    output <- mapDelay stream
+    hPutLines' hdl output
+    hClose hdl
+
+mapDelay :: Stream UTCTime -> IO (Stream UTCTime)
+mapDelay (e@(E id t v):r) = unsafeInterleaveIO $ do
     now <- getCurrentTime
-    let newe = mapTimeDelay delay e where delay = diffUTCTime now v
-    print newe
-    appendFile "sw-log.txt" (show newe ++ "\n")
-    printStreamDelay r
-printStreamDelay (e:r) = do
-    print e
-    printStreamDelay r
-printStreamDelay [] = return ()
+    let x = mapTimeDelay delay e where delay = diffUTCTime now v
+    xs <- mapDelay r
+    return (x:xs)
+
+
+-- printStreamDelay :: Stream UTCTime -> IO ()
+-- printStreamDelay (e@(E id t v):r) = do
+--     now <- getCurrentTime
+--     let newe = mapTimeDelay delay e where delay = diffUTCTime now v
+--     appendFile "sw-log.txt" (show newe ++ "\n")
+--     printStreamDelay r
+-- printStreamDelay (e:r) = do
+--     print e
+--     printStreamDelay r
+-- printStreamDelay [] = return ()
 
 printStream :: Stream String -> IO ()
 printStream (e:r) = do
