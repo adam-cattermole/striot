@@ -16,9 +16,7 @@ import Numeric
 listenPort = 9001 :: PortNumber
 
 main :: IO ()
-main = do
-    writeFile "sw-log.txt" ""
-    nodeSink kaliParse printStreamDelay listenPort
+main = nodeSink kaliParse printStreamDelay listenPort
     -- nodeSink streamGraphid printStream listenPort
 
 streamGraphid :: Stream String -> Stream String
@@ -49,11 +47,12 @@ printStreamDelay stream = do
     output <- mapDelay stream
     hPutLines' hdl output
     hClose hdl
+    printStreamDelay stream
 
-mapDelay :: Stream UTCTime -> IO (Stream UTCTime)
+mapDelay :: Stream UTCTime -> IO (Stream (UTCTime, UTCTime))
 mapDelay (e@(E id t v):r) = unsafeInterleaveIO $ do
     now <- getCurrentTime
-    let x = mapTimeDelay delay e where delay = diffUTCTime now v
+    let x = E id t (v, now)
     xs <- mapDelay r
     return (x:xs)
 

@@ -4,12 +4,11 @@ module Striot.Nodes ( nodeSink
                     , nodeLink
                     , nodeLink2
                     , nodeSource
-                    , hPutLines'
                     ) where
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Monad              (forever, when)
+import           Control.Monad              (forever, when, unless)
 import           Data.Aeson
 import qualified Data.ByteString            as B
 import qualified Data.ByteString.Char8      as BC (putStrLn)
@@ -230,9 +229,8 @@ hPutLines' handle [] = do
     -- putStrLn "Closed output handle"
     return ()
 hPutLines' handle (x:xs) = do
-    writeable <- hIsWritable handle
-    open      <- hIsOpen handle
-    when (open && writeable) $ do
+    writable <- hIsWritable handle
+    when writable $ do
         -- BLC.putStrLn (encode x)
         BLC.hPutStrLn    handle (encode x)
         hPutLines' handle xs
