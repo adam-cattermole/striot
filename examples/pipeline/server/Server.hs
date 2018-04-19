@@ -16,7 +16,9 @@ import Numeric
 listenPort = 9001 :: PortNumber
 
 main :: IO ()
-main = nodeSink kaliParse printStreamDelay listenPort
+main = do
+    writeFile "sw-log.txt" ""
+    nodeSink kaliParse printStreamDelay listenPort
     -- nodeSink streamGraphid printStream listenPort
 
 streamGraphid :: Stream String -> Stream String
@@ -44,6 +46,7 @@ averageVal l xs = sum xs `div` l
 printStreamDelay :: Stream UTCTime -> IO ()
 printStreamDelay stream = do
     hdl <- openFile "sw-log.txt" WriteMode
+    hSetBuffering hdl NoBuffering
     output <- mapDelay stream
     hPutLines' hdl output
     hClose hdl

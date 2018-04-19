@@ -4,6 +4,7 @@ import subprocess
 import logging
 import paramiko
 import os
+import sys
 
 EVENT_TYPE_NORMAL = 0
 EVENT_TYPE_AESON = 1
@@ -34,11 +35,20 @@ def main():
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.WarningPolicy())
     client.connect(hostname=RESULTS_HOST, username=USERNAME)
+    sftp = client.open_sftp()
+    f = sftp.open(LOG_PATH, 'r')
     for i in range(1, ITERATIONS+1):
         logging.info("Iteration {}:".format(i))
         run_iteration(i, client)
+        with open("iter{}/serial-log.txt".format(i), 'w') as log_file:
+            log_file.write(f.read())
+    f.close()
+    sftp.close()
     client.close()
-    time.sleep(600)
+    if len(sys.argv) == 1:
+        exit(0)
+    else:
+        time.sleep(sys.argv[1])
 
 
 def run_iteration(iteration, ssh_client=None):
@@ -49,12 +59,13 @@ def run_iteration(iteration, ssh_client=None):
         f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
         runner = TCPKaliRunner(rate, f_name)
         runner.run()
-    time.sleep(30)
-    sftp = ssh_client.open_sftp()
-    sftp.get(LOG_PATH,
-             "{}/serial-log.txt".format(currdir))
-    sftp.remove(LOG_PATH)
-    sftp.close()
+        time.sleep(30)
+
+    # stats = sftp.stat(LOG_PATH)
+    # sftp.get(LOG_PATH,
+    #          "{}/serial-log.txt".format(currdir))
+    # sftp.remove(LOG_PATH)
+    # sftp.close()
 
 
 class TCPKaliRunner():

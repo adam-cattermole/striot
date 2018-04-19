@@ -4,6 +4,7 @@ module Striot.Nodes ( nodeSink
                     , nodeLink
                     , nodeLink2
                     , nodeSource
+                    , hPutLines'
                     ) where
 
 import           Control.Concurrent
