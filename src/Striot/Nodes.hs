@@ -157,7 +157,7 @@ and passed to writeEventsTChan -}
 processHandle :: FromJSON (Event alpha) => Handle -> TChan (Event alpha) -> IO ()
 processHandle handle eventChan = do
     byteStream <- hGetLines' handle
-    let eventStream = mapMaybe (decode . BL.fromStrict) byteStream
+    let eventStream = mapMaybe decodeStrict byteStream
     writeEventsTChan eventStream eventChan
 
 
@@ -197,7 +197,7 @@ readListFromSocket' sockIn = do
 readEventStreamFromSocket :: FromJSON (Event alpha) => Socket -> IO (Handle, Stream alpha)
 readEventStreamFromSocket sock = do
     (hdl, byteStream) <- readListFromSocket' sock
-    let eventStream = mapMaybe (decode . BL.fromStrict) byteStream
+    let eventStream = mapMaybe decodeStrict byteStream
     return (hdl, eventStream)
 
 
