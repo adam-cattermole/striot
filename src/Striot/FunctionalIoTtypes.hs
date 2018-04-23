@@ -15,13 +15,11 @@ data Event alpha     =  E {id :: Int, time :: Timestamp, value :: alpha} |
 type Timestamp       = UTCTime
 type Stream alpha    = [Event alpha]
 
--- instance (Binary alpha) => Binary (Event alpha)
 instance (FromJSON alpha) => FromJSON (Event alpha)
 
 instance (ToJSON alpha) => ToJSON (Event alpha) where
     toEncoding = genericToEncoding defaultOptions
 
--- instance Binary UTCTime
 
 dataEvent :: Event alpha -> Bool
 dataEvent (E id t v) = True

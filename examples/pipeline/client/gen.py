@@ -39,9 +39,11 @@ def main():
     f = sftp.open(LOG_PATH, 'r')
     for i in range(1, ITERATIONS+1):
         logging.info("Iteration {}:".format(i))
-        run_iteration(i, client)
-        with open("iter{}/serial-log.txt".format(i), 'w') as log_file:
-            log_file.write(f.read())
+        currdir = "iter{}".format(i)
+        if not os.path.exists(currdir):
+            os.makedirs(currdir)
+        with open("{}/serial-log.txt".format(currdir), 'wb') as log_file:
+            run_iteration(i, currdir, log_file, f, client)
     f.close()
     sftp.close()
     client.close()
@@ -51,15 +53,13 @@ def main():
         time.sleep(sys.argv[1])
 
 
-def run_iteration(iteration, ssh_client=None):
-    currdir = "iter{}".format(iteration)
-    if not os.path.exists(currdir):
-        os.makedirs(currdir)
+def run_iteration(iteration, currdir, log_file, sftp_file, ssh_client=None):
     for rate in RATES:
         f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
         runner = TCPKaliRunner(rate, f_name)
         runner.run()
         time.sleep(30)
+        log_file.write(sftp_file.read())
 
     # stats = sftp.stat(LOG_PATH)
     # sftp.get(LOG_PATH,
