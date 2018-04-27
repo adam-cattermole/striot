@@ -9,13 +9,11 @@ module Striot.Nodes ( nodeSink
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Monad              (forever, when, unless)
+import           Control.Monad              (forever, when)
 import           Data.Aeson
 import qualified Data.ByteString            as B
 import qualified Data.ByteString.Char8      as BC (putStrLn)
-import qualified Data.ByteString.Lazy       as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC (hPutStrLn, putStrLn)
-import           Data.List
 import           Data.Maybe
 import           Data.Time                  (getCurrentTime)
 import           Network                    (PortID (PortNumber), accept,
@@ -28,7 +26,7 @@ import           System.IO.Unsafe
 
 --- SINK FUNCTIONS ---
 
-nodeSink :: (FromJSON (Event alpha), ToJSON (Event beta), Show beta) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> IO ()
+nodeSink :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> IO ()
 nodeSink streamGraph iofn portNumInput1 = withSocketsDo $ do
     sock <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting server ..."
@@ -36,7 +34,7 @@ nodeSink streamGraph iofn portNumInput1 = withSocketsDo $ do
     nodeSink' sock streamGraph iofn
 
 
-nodeSink' :: (FromJSON (Event alpha), ToJSON (Event beta), Show beta) => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
+nodeSink' :: (FromJSON (Event alpha), ToJSON (Event beta)) => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
 nodeSink' sock streamOps iofn = do
     stream <- processSocket sock
     let result = streamOps stream
@@ -44,7 +42,7 @@ nodeSink' sock streamOps iofn = do
 
 
 -- A Sink with 2 inputs
-nodeSink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma), Show gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> PortNumber -> PortNumber -> IO ()
+nodeSink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> PortNumber -> PortNumber -> IO ()
 nodeSink2 streamGraph iofn portNumInput1 portNumInput2= withSocketsDo $ do
     sock1 <- listenOn $ PortNumber portNumInput1
     sock2 <- listenOn $ PortNumber portNumInput2
@@ -53,7 +51,7 @@ nodeSink2 streamGraph iofn portNumInput1 portNumInput2= withSocketsDo $ do
     nodeSink2' sock1 sock2 streamGraph iofn
 
 
-nodeSink2' :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma), Show gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> IO ()
+nodeSink2' :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> IO ()
 nodeSink2' sock1 sock2 streamOps iofn = do
     stream1 <- processSocket sock1
     stream2 <- processSocket sock2
@@ -63,7 +61,7 @@ nodeSink2' sock1 sock2 streamOps iofn = do
 
 --- LINK FUNCTIONS ---
 
-nodeLink :: (FromJSON (Event alpha), ToJSON (Event beta), Show beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
+nodeLink :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
     sockIn <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting link ..."
@@ -71,7 +69,7 @@ nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo 
     nodeLink' sockIn streamGraph hostNameOutput portNumOutput
 
 
-nodeLink' :: (FromJSON (Event alpha), ToJSON (Event beta), Show beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeLink' :: (FromJSON (Event alpha), ToJSON (Event beta)) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeLink' sock streamOps host port = do
     stream <- processSocket sock
     let result = streamOps stream
@@ -79,7 +77,7 @@ nodeLink' sock streamOps host port = do
 
 
 -- A Link with 2 inputs
-nodeLink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma), Show gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> PortNumber -> PortNumber -> HostName -> PortNumber -> IO ()
+nodeLink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => (Stream alpha -> Stream beta -> Stream gamma) -> PortNumber -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink2 streamGraph portNumInput1 portNumInput2 hostName portNumOutput = withSocketsDo $ do
     sock1 <- listenOn $ PortNumber portNumInput1
     sock2 <- listenOn $ PortNumber portNumInput2
@@ -88,7 +86,7 @@ nodeLink2 streamGraph portNumInput1 portNumInput2 hostName portNumOutput = withS
     nodeLink2' sock1 sock2 streamGraph hostName portNumOutput
 
 
-nodeLink2' :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma), Show gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> PortNumber -> IO ()
+nodeLink2' :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> PortNumber -> IO ()
 nodeLink2' sock1 sock2 streamOps host port = do
     stream1 <- processSocket sock1
     stream2 <- processSocket sock2
@@ -98,7 +96,7 @@ nodeLink2' sock1 sock2 streamOps host port = do
 
 --- SOURCE FUNCTIONS ---
 
-nodeSource :: (ToJSON (Event beta), Show beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeSource :: ToJSON (Event beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeSource pay streamGraph host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
@@ -156,8 +154,8 @@ hGetLines' with the IO deferred lazily. The string list is mapped to a Stream
 and passed to writeEventsTChan -}
 processHandle :: FromJSON (Event alpha) => Handle -> TChan (Event alpha) -> IO ()
 processHandle handle eventChan = do
-    byteStream <- hGetLines' handle
-    let eventStream = mapMaybe decodeStrict byteStream
+    eventStream <- mapMaybe decodeStrict <$> hGetLines' handle
+    -- let eventStream = mapMaybe decodeStrict byteStream
     writeEventsTChan eventStream eventChan
 
 
@@ -201,7 +199,7 @@ readEventStreamFromSocket sock = do
     return (hdl, eventStream)
 
 
-sendStream :: (ToJSON (Event alpha), Show alpha) => Stream alpha -> HostName -> PortNumber -> IO ()
+sendStream :: ToJSON (Event alpha) => Stream alpha -> HostName -> PortNumber -> IO ()
 sendStream []     host port = return ()
 sendStream stream host port = withSocketsDo $ do
     handle <- connectTo host (PortNumber port)
@@ -224,7 +222,7 @@ hGetLines' handle = System.IO.Unsafe.unsafeInterleaveIO $ do
         else return []
 
 
-hPutLines' :: (ToJSON (Event alpha), Show alpha) => Handle -> Stream alpha -> IO ()
+hPutLines' :: ToJSON (Event alpha) => Handle -> Stream alpha -> IO ()
 hPutLines' handle [] = do
     hClose handle
     -- putStrLn "Closed output handle"

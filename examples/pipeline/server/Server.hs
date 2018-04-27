@@ -12,6 +12,7 @@ import Data.Time.Clock (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.List.Split
 import Numeric
+import Data.Aeson
 
 listenPort = 9001 :: PortNumber
 
@@ -43,7 +44,7 @@ kaliParse' x = readHex $ take 16 (drop 13 x)
 averageVal :: Int -> [Int] -> Int
 averageVal l xs = sum xs `div` l
 
-printStreamDelay :: Stream UTCTime -> IO ()
+printStreamDelay :: (ToJSON alpha) => Stream alpha -> IO ()
 printStreamDelay stream = do
     hdl <- openFile "sw-log.txt" WriteMode
     hSetBuffering hdl NoBuffering
@@ -52,12 +53,15 @@ printStreamDelay stream = do
     hClose hdl
     printStreamDelay stream
 
-mapDelay :: Stream UTCTime -> IO (Stream (UTCTime, UTCTime))
+mapDelay :: Stream alpha -> IO (Stream (alpha, UTCTime))
 mapDelay (e@(E id t v):r) = unsafeInterleaveIO $ do
-    now <- getCurrentTime
-    let x = E id t (v, now)
+    x <- msg e v
     xs <- mapDelay r
     return (x:xs)
+  where
+    msg x v = do
+        now <- getCurrentTime
+        return x { value = (v, now) }
 
 
 -- printStreamDelay :: Stream UTCTime -> IO ()
