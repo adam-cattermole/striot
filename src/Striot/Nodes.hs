@@ -8,7 +8,6 @@ module Striot.Nodes ( nodeSink
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Monad             (forever, when)
-import           Data.List
 import           Data.Time                 (getCurrentTime)
 import           Network                   (PortID (PortNumber), connectTo,
                                             listenOn)
@@ -117,9 +116,7 @@ readListFromSource = go 0
 accepting and handling connections on the socket and reading all of the strings
 into an event Stream -}
 processSocket :: Read alpha => Socket -> IO (Stream alpha)
-processSocket sock = do
-    eventChan <- acceptConnections sock
-    readEventsTChan eventChan
+processSocket sock = acceptConnections sock >>= readEventsTChan
 
 
 {- acceptConnections takes a socket as an argument and spins up a new thread to
