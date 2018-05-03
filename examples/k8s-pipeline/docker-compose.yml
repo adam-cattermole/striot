@@ -1,0 +1,20 @@
+version: '3'
+services:
+
+  haskellserver:
+    build: server 
+    tty: true
+
+  haskellclient2:
+    environment:
+        HASKELL_SERVER_SERVICE_HOST: haskellserver
+    build: client2   
+    depends_on:
+      - haskellserver
+
+  haskellclient:
+    environment:
+        HASKELL_CLIENT2_SERVICE_HOST: haskellclient2
+    build: client
+    depends_on:
+      - haskellclient2
