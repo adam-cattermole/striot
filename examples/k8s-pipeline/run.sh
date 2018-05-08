@@ -3,20 +3,18 @@ NORMAL="\\033[0;39m"
 RED="\\033[1;31m"
 BLUE="\\033[1;34m"
 
-
 PREFIX="striot"
-declare -a dirs=("server" "client2" "client")
+SINK="server"
 
+declare -a dirs=("server" "client2" "client")
 
 build() {
   eval $(minikube docker-env)
   log "Creating docker containers..."
   if [ -n "$1" ]; then
     if  [ $1 = "base" ]; then
-      cd ../../containers
       log "Making striot/striot-base..."
-      make all
-      cd ../examples/k8s-pipeline
+      make -C ../../containers all
     fi
   fi
   declare -a names=()
@@ -79,10 +77,8 @@ clean() {
   log "Removing docker containers..."
   if [ -n "$1" ]; then
     if  [ $1 = "base" ]; then
-      cd ../../containers
       log "Removing striot/striot-base..."
-      make clean
-      cd ../examples/k8s-pipeline
+      make -C ../../containers clean
     fi
   fi
   declare -a names=()
