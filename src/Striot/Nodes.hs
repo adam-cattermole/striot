@@ -162,10 +162,12 @@ processHandle handle eventChan = do
 {- writeEventsTChan takes a TChan and Stream of the same type, and recursively
 writes the events atomically to the TChan, until an empty list -}
 writeEventsTChan :: FromJSON (Event alpha) => Stream alpha -> TChan (Event alpha) -> IO ()
-writeEventsTChan (h:t) eventChan = do
-    atomically $ writeTChan eventChan h
-    writeEventsTChan t eventChan
-writeEventsTChan [] _ = return ()
+writeEventsTChan stream eventChan =
+    mapM_ (writeEvent eventChan) stream
+    where writeEvent chan x = atomically $ writeTChan chan x
+    -- atomically $ writeTChan eventChan h
+    -- writeEventsTChan t eventChan
+-- writeEventsTChan [] _ = return ()
 
 
 {- readEventsTChan creates a stream of events from reading the next element from
