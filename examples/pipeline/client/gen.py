@@ -9,7 +9,7 @@ import sys
 EVENT_TYPE_NORMAL = 0
 EVENT_TYPE_AESON = 1
 
-ITERATIONS = 5
+ITERATIONS = 3
 TEST_LENGTH = 30
 RATE = 1
 
@@ -35,17 +35,11 @@ def main():
     client.load_system_host_keys()
     client.set_missing_host_key_policy(paramiko.WarningPolicy())
     client.connect(hostname=RESULTS_HOST, username=USERNAME)
-    sftp = client.open_sftp()
-    f = sftp.open(LOG_PATH, 'r')
+    pos = 0
     for i in range(1, ITERATIONS+1):
         logging.info("Iteration {}:".format(i))
-        currdir = "iter{}".format(i)
-        if not os.path.exists(currdir):
-            os.makedirs(currdir)
-        with open("{}/serial-log.txt".format(currdir), 'wb') as log_file:
-            run_iteration(i, currdir, log_file, f, client)
-    f.close()
-    sftp.close()
+        pos += run_iteration(i, client, pos)
+
     client.close()
     if len(sys.argv) == 1:
         exit(0)
@@ -53,13 +47,26 @@ def main():
         time.sleep(sys.argv[1])
 
 
-def run_iteration(iteration, currdir, log_file, sftp_file, ssh_client=None):
+def run_iteration(iteration, ssh_client, pos):
+    currdir = "iter{}".format(iteration)
+    if not os.path.exists(currdir):
+        os.makedirs(currdir)
+    sftp = ssh_client.open_sftp()
+    f = sftp.open(LOG_PATH, 'r')
+    f.seek(pos)
+    # with open("{}/serial-log.txt".format(currdir), 'wb') as log_file:
     for rate in RATES:
         f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
         runner = TCPKaliRunner(rate, f_name)
         runner.run()
-        time.sleep(30)
-        log_file.write(sftp_file.read())
+        # time.sleep(30)
+    local_file = "{}/serial-log.txt".format(currdir)
+    sftp.getfo(f, local_file)
+    attr = f.stat()
+    f.close()
+    sftp.close()
+    return attr.st_size
+    # log_file.write(sftp_file.read())
 
     # stats = sftp.stat(LOG_PATH)
     # sftp.get(LOG_PATH,
@@ -80,7 +87,7 @@ class TCPKaliRunner():
             subprocess.run(["tcpkali", "-em",
                             self.event(EVENT_TYPE_AESON, id=self.rate),
                             "-r{}".format(self.rate),
-                            "--dump-all",
+                            # "--dump-all",
                             "--nagle=off",
                             "--write-combine=off",
                             "-T{}s".format(TEST_LENGTH),
