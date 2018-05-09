@@ -4,20 +4,23 @@ module Striot.Nodes ( nodeSink
                     , nodeLink
                     , nodeLink2
                     , nodeSource
+                    , nodeSourceAmq
                     ) where
 
+import qualified Codec.MIME.Type                 as M (nullType)
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Monad              (forever, when)
+import           Control.Monad                   (forever, when)
 import           Data.Aeson
-import qualified Data.ByteString            as B
-import qualified Data.ByteString.Char8      as BC (putStrLn)
-import qualified Data.ByteString.Lazy.Char8 as BLC (hPutStrLn, putStrLn)
+import qualified Data.ByteString                 as B
+import qualified Data.ByteString.Char8           as BC (putStrLn)
+import qualified Data.ByteString.Lazy.Char8      as BLC (hPutStrLn, putStrLn, toStrict)
 import           Data.Maybe
-import           Data.Time                  (getCurrentTime)
-import           Network                    (PortID (PortNumber), accept,
-                                             connectTo, listenOn)
-import           Network.Socket             hiding (accept)
+import           Data.Time                       (getCurrentTime)
+import           Network                         (PortID (PortNumber), accept,
+                                                  connectTo, listenOn)
+import           Network.Mom.Stompl.Client.Queue
+import           Network.Socket                  hiding (accept)
 import           Striot.FunctionalIoTtypes
 import           System.IO
 import           System.IO.Unsafe
@@ -102,6 +105,19 @@ nodeSource pay streamGraph host port = do
     let result = streamGraph stream
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
+
+--- LINK FUNCTIONS - AcitveMQ ---
+
+
+
+--- SOURCE FUNCTIONS - ActiveMQ ---
+
+nodeSourceAmq :: ToJSON (Event beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeSourceAmq pay streamGraph host port = do
+    putStrLn "Starting source ..."
+    stream <- readListFromSource pay
+    let result = streamGraph stream
+    sendStreamAmq result host port
 
 --- UTILITY FUNCTIONS ---
 
@@ -233,3 +249,32 @@ hPutLines' handle (x:xs) = do
         -- BLC.putStrLn (encode x)
         BLC.hPutStrLn    handle (encode x)
         hPutLines' handle xs
+
+--- UTILITY FUNCTIONS - ActiveMQ ---
+
+sendStreamAmq :: ToJSON (Event alpha) => Stream alpha -> HostName -> PortNumber -> IO ()
+sendStreamAmq []     _    _    = return ()
+sendStreamAmq stream host port = do
+    let opts = brokerOpts
+    withConnection host (fromIntegral port) opts [] $ \c -> do
+        q <- newWriter c "SampleQueue" "SampleQueue" [ONoContentLen] [] oconv
+        publishMessages q stream
+
+
+brokerOpts :: [Copt]
+brokerOpts = let h = (0, 2000)
+             in  [ OHeartBeat h ]
+
+
+iconv :: FromJSON (Event alpha) => InBound (Maybe (Event alpha))
+iconv = let iconv _ _ _ = return . decodeStrict
+              in  iconv
+
+oconv :: ToJSON (Event alpha) => OutBound (Event alpha)
+oconv = return . BLC.toStrict . encode
+
+publishMessages :: (ToJSON (Event alpha)) => Writer (Event alpha) -> Stream alpha -> IO ()
+publishMessages _ []     = return ()
+publishMessages q (x:xs) = do
+    writeQ q M.nullType [] x
+    publishMessages q xs
