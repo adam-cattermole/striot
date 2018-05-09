@@ -14,65 +14,74 @@ TEST_LENGTH = 30
 RATE = 1
 
 USERNAME = "azure"
-RESULTS_HOST = os.environ["HASKELL_SERVER_SERVICE_HOST"]
-LOG_PATH = "/home/azure/striot/examples/pipeline/server/sw-log.txt"
+LOG_PATH = "/home/azure/sw-log.txt"
 
 RATES = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
 # RATES = [1, 5]
 
 # HOSTNAME = "127.0.0.1:9002"
-HOSTNAME = "{}:9001".format(os.environ["HASKELL_CLIENT2_SERVICE_HOST"])
+SERVER_HOST = os.environ["HASKELL_SERVER_SERVICE_HOST"]
+CLIENT2_HOST = os.environ["HASKELL_CLIENT2_SERVICE_HOST"]
 
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s)[%(levelname)-8s] '
                     '%(asctime)s.%(msecs)-3d %(message)s',
                     datefmt='%X')
 
+SERVER = 0
+CLIENT2 = 1
+
 
 def main():
     logging.info("Start")
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.WarningPolicy())
-    client.connect(hostname=RESULTS_HOST, username=USERNAME)
-    pos = 0
+
+    clients = []
+    clients[SERVER] = create_client()
+    clients[CLIENT2] = create_client()
+
     for i in range(1, ITERATIONS+1):
         logging.info("Iteration {}:".format(i))
-        pos += run_iteration(i, client, pos)
+        run_iteration(i, clients)
 
-    client.close()
     if len(sys.argv) == 1:
         exit(0)
     else:
         time.sleep(sys.argv[1])
 
 
-def run_iteration(iteration, ssh_client, pos):
+def run_iteration(iteration, clients, pos):
     currdir = "iter{}".format(iteration)
     if not os.path.exists(currdir):
         os.makedirs(currdir)
-    sftp = ssh_client.open_sftp()
-    f = sftp.open(LOG_PATH, 'r')
-    f.seek(pos)
+    # sftp = ssh_client.open_sftp()
+    # f = sftp.open(LOG_PATH, 'r')
+    # f.seek(pos)
     # with open("{}/serial-log.txt".format(currdir), 'wb') as log_file:
+    # client.connect(hostname=RESULTS_HOST, username=USERNAME)
     for rate in RATES:
-        f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
-        runner = TCPKaliRunner(rate, f_name)
+        clients[SERVER].connect(hostname=SERVER_HOST, username=USERNAME)
+        clients[SERVER].exec_command(
+            './striot/examples/pipeline/server/server +RTS -N -qg')
+        clients[CLIENT2].connect(hostname=CLIENT2_HOST, username=USERNAME)
+        clients[CLIENT2].exec_command(
+            './striot/examples/pipeline/client2/client2 +RTS -N -qg')
+        tcpkf_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
+        runner = TCPKaliRunner(rate, tcpkf_name)
         runner.run()
-        # time.sleep(30)
-    local_file = "{}/serial-log.txt".format(currdir)
-    sftp.getfo(f, local_file)
-    attr = f.stat()
-    f.close()
-    sftp.close()
-    return attr.st_size
-    # log_file.write(sftp_file.read())
+        time.sleep(30)
+        sftp = clients[SERVER].open_sftp()
+        sftp.get(LOG_PATH, "{}/serial-log_r{}.txt".format(currdir, rate))
+        sftp.close()
+        clients[SERVER].close()
+        clients[CLIENT2].close()
 
-    # stats = sftp.stat(LOG_PATH)
-    # sftp.get(LOG_PATH,
-    #          "{}/serial-log.txt".format(currdir))
-    # sftp.remove(LOG_PATH)
-    # sftp.close()
+
+def create_client():
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
+    # client.connect(hostname=hostname, username=username)
+    return client
 
 
 class TCPKaliRunner():
@@ -91,7 +100,7 @@ class TCPKaliRunner():
                             "--nagle=off",
                             "--write-combine=off",
                             "-T{}s".format(TEST_LENGTH),
-                            HOSTNAME],
+                            "{}:9001".format(CLIENT2_HOST)],
                            stderr=open_file,
                            stdout=open_file)
 
