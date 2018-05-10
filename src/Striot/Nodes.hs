@@ -15,7 +15,11 @@ import qualified Data.ByteString                as B
 import qualified Data.ByteString.Char8          as BC
 import qualified Data.ByteString.Lazy.Char8     as BLC
 import           Data.Maybe
+<<<<<<< HEAD
 import           Data.Time                      (getCurrentTime)
+=======
+import           Data.Time                  (getCurrentTime)
+>>>>>>> Changing Network code to use Network.Socket
 import           Network.Socket
 import           Network.Mom.Stompl.Client.Queue
 import           Striot.FunctionalIoTtypes
@@ -25,7 +29,11 @@ import           System.IO.Unsafe
 
 --- SINK FUNCTIONS ---
 
+<<<<<<< HEAD
 nodeSink :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> ServiceName -> IO ()
+=======
+nodeSink :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> ServiceName -> IO ()
+>>>>>>> Changing Network code to use Network.Socket
 nodeSink streamGraph iofn portNumInput1 = withSocketsDo $ do
     sock <- listenSocket portNumInput1
     putStrLn "Starting server ..."
@@ -41,7 +49,11 @@ nodeSink' sock streamOps iofn = do
 
 
 -- A Sink with 2 inputs
+<<<<<<< HEAD
 nodeSink2 :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> ServiceName -> ServiceName -> IO ()
+=======
+nodeSink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> ServiceName -> ServiceName -> IO ()
+>>>>>>> Changing Network code to use Network.Socket
 nodeSink2 streamGraph iofn portNumInput1 portNumInput2= withSocketsDo $ do
     sock1 <- listenSocket portNumInput1
     sock2 <- listenSocket portNumInput2
@@ -60,7 +72,11 @@ nodeSink2' sock1 sock2 streamOps iofn = do
 
 --- LINK FUNCTIONS ---
 
+<<<<<<< HEAD
 nodeLink :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> ServiceName -> HostName -> ServiceName -> IO ()
+=======
+nodeLink :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> ServiceName -> HostName -> ServiceName -> IO ()
+>>>>>>> Changing Network code to use Network.Socket
 nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
     sockIn <- listenSocket portNumInput1
     putStrLn "Starting link ..."
@@ -68,7 +84,11 @@ nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo 
     nodeLink' sockIn streamGraph hostNameOutput portNumOutput
 
 
+<<<<<<< HEAD
 nodeLink' :: (FromJSON alpha, ToJSON beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+=======
+nodeLink' :: (FromJSON (Event alpha), ToJSON (Event beta)) => Socket -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+>>>>>>> Changing Network code to use Network.Socket
 nodeLink' sock streamOps host port = do
     stream <- processSocket sock
     let result = streamOps stream
@@ -76,7 +96,11 @@ nodeLink' sock streamOps host port = do
 
 
 -- A Link with 2 inputs
+<<<<<<< HEAD
 nodeLink2 :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> ServiceName -> ServiceName -> HostName -> ServiceName -> IO ()
+=======
+nodeLink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => (Stream alpha -> Stream beta -> Stream gamma) -> ServiceName -> ServiceName -> HostName -> ServiceName -> IO ()
+>>>>>>> Changing Network code to use Network.Socket
 nodeLink2 streamGraph portNumInput1 portNumInput2 hostName portNumOutput = withSocketsDo $ do
     sock1 <- listenSocket portNumInput1
     sock2 <- listenSocket portNumInput2
@@ -85,7 +109,11 @@ nodeLink2 streamGraph portNumInput1 portNumInput2 hostName portNumOutput = withS
     nodeLink2' sock1 sock2 streamGraph hostName portNumOutput
 
 
+<<<<<<< HEAD
 nodeLink2' :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> ServiceName -> IO ()
+=======
+nodeLink2' :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> ServiceName -> IO ()
+>>>>>>> Changing Network code to use Network.Socket
 nodeLink2' sock1 sock2 streamOps host port = do
     stream1 <- processSocket sock1
     stream2 <- processSocket sock2
@@ -95,7 +123,11 @@ nodeLink2' sock1 sock2 streamOps host port = do
 
 --- SOURCE FUNCTIONS ---
 
+<<<<<<< HEAD
 nodeSource :: ToJSON beta => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+=======
+nodeSource :: ToJSON (Event beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+>>>>>>> Changing Network code to use Network.Socket
 nodeSource pay streamGraph host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
@@ -274,3 +306,41 @@ publishMessages _ []     = return ()
 publishMessages q (x:xs) = do
     writeQ q M.nullType [] x
     publishMessages q xs
+
+--- SOCKETS ---
+
+
+listenSocket :: ServiceName -> IO Socket
+listenSocket port = do
+    let hints = defaultHints { addrFlags = [AI_PASSIVE],
+                               addrSocketType = Stream }
+    (sock, addr) <- createSocket [] port hints
+    setSocketOption sock ReuseAddr 1
+    bind sock $ addrAddress addr
+    listen sock maxQConn
+    return sock
+    where maxQConn = 10
+
+
+connectSocket :: HostName -> ServiceName -> IO Socket
+connectSocket host port = do
+    let hints = defaultHints { addrSocketType = Stream }
+    (sock, addr) <- createSocket host port hints
+    setSocketOption sock KeepAlive 1
+    connect sock $ addrAddress addr
+    return sock
+
+
+createSocket :: HostName -> ServiceName -> AddrInfo -> IO (Socket, AddrInfo)
+createSocket host port hints = do
+    addr <- resolve host port hints
+    sock <- getSocket addr
+    return (sock, addr)
+  where
+    resolve host port hints = do
+        addr:_ <- getAddrInfo (Just hints) (isHost host) (Just port)
+        return addr
+    getSocket addr = socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
+    isHost h
+        | null h    = Nothing
+        | otherwise = Just h
