@@ -8,16 +8,11 @@ import Striot.FunctionalIoTtypes
 import Striot.Nodes
 import Network.Socket (ServiceName)
 
-import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
+import Data.Time (getCurrentTime)
 import Data.Time.Clock (UTCTime)
-import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import Data.List.Split
 import qualified Data.ByteString.Lazy.Char8 as BLC (hPutStrLn)
-import Numeric
 import Data.Aeson
 import qualified Data.Text as T
-import qualified Data.Text.Read as TR
-import Data.Either.Combinators
 import Control.Monad (when)
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -37,26 +32,6 @@ main = do
 
 streamGraphid :: Stream T.Text -> Stream T.Text
 streamGraphid = streamMap (\x -> Prelude.id x)
-
-kaliParse :: Stream String -> Stream UTCTime
-kaliParse = streamMap (\x -> posixSecondsToUTCTime . fromRational $ fst (head (kaliParse' x)) / 1000000)
-
-kaliParse' x = readHex $ take 16 (drop 13 x)
-
-kaliParse'' :: Stream T.Text -> Stream UTCTime
-kaliParse'' = streamMap (\x -> posixSecondsToUTCTime . fromRational $ (kaliParse''' x) /1000000)
-
-kaliParse''' :: T.Text -> Rational
-kaliParse''' x =
-    let e = kaliParse'''' x
-        (i, t) = fromRight' e
-    in  fromIntegral i
-
-kaliParse'''' :: T.Text -> Either String (Integer, T.Text)
-kaliParse'''' x = TR.hexadecimal $ T.take 16 (T.drop 13 x)
-
-averageVal :: Int -> [Int] -> Int
-averageVal l xs = sum xs `div` l
 
 
 sinkToChan :: (ToJSON alpha) => TChan (Event (alpha, UTCTime)) -> Stream alpha -> IO ()
@@ -104,26 +79,3 @@ hPutLines'' handle (x:xs) = do
         BLC.hPutStrLn handle (encode x)
         hFlush handle
         hPutLines'' handle xs
-
--- printStreamDelay :: Stream UTCTime -> IO ()
--- printStreamDelay (e@(E id t v):r) = do
---     now <- getCurrentTime
---     let newe = mapTimeDelay delay e where delay = diffUTCTime now v
---     appendFile "sw-log.txt" (show newe ++ "\n")
---     printStreamDelay r
--- printStreamDelay (e:r) = do
---     print e
---     printStreamDelay r
--- printStreamDelay [] = return ()
-
-printStream :: Stream String -> IO ()
-printStream (e:r) = do
-    print e
-    printStream r
-
-mapTimeDelay :: NominalDiffTime -> Event UTCTime -> Event (UTCTime, Float)
-mapTimeDelay delay (E id t v) = E id t newv
-    where newv = (v, roundN 10 (toRational delay))
-
-roundN :: Int -> Rational -> Float
-roundN n f = fromInteger (round $ f * (10^n)) / (10.0^^n)
