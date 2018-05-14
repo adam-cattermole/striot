@@ -9,79 +9,63 @@ import sys
 EVENT_TYPE_NORMAL = 0
 EVENT_TYPE_AESON = 1
 
-ITERATIONS = 3
+ITERATIONS = 5
 TEST_LENGTH = 30
 RATE = 1
 
 USERNAME = "azure"
-LOG_PATH = "/home/azure/sw-log.txt"
+RESULTS_HOST = os.environ["HASKELL_SERVER_SERVICE_HOST"]
+LOG_PATH = "/home/azure/striot/examples/pipeline/server/sw-log.txt"
 
 RATES = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
 # RATES = [1, 5]
 
 # HOSTNAME = "127.0.0.1:9002"
-SERVER_HOST = os.environ["HASKELL_SERVER_SERVICE_HOST"]
-CLIENT2_HOST = os.environ["HASKELL_CLIENT2_SERVICE_HOST"]
+HOSTNAME = "{}:9001".format(os.environ["HASKELL_CLIENT2_SERVICE_HOST"])
 
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s)[%(levelname)-8s] '
                     '%(asctime)s.%(msecs)-3d %(message)s',
                     datefmt='%X')
 
-SERVER = 0
-CLIENT2 = 1
-
 
 def main():
     logging.info("Start")
-
-    clients = []
-    clients[SERVER] = create_client()
-    clients[CLIENT2] = create_client()
-
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
+    client.connect(hostname=RESULTS_HOST, username=USERNAME)
+    sftp = client.open_sftp()
+    f = sftp.open(LOG_PATH, 'r')
     for i in range(1, ITERATIONS+1):
         logging.info("Iteration {}:".format(i))
-        run_iteration(i, clients)
-
+        currdir = "iter{}".format(i)
+        if not os.path.exists(currdir):
+            os.makedirs(currdir)
+        with open("{}/serial-log.txt".format(currdir), 'wb') as log_file:
+            run_iteration(i, currdir, log_file, f, client)
+    f.close()
+    sftp.close()
+    client.close()
     if len(sys.argv) == 1:
         exit(0)
     else:
         time.sleep(sys.argv[1])
 
 
-def run_iteration(iteration, clients, pos):
-    currdir = "iter{}".format(iteration)
-    if not os.path.exists(currdir):
-        os.makedirs(currdir)
-    # sftp = ssh_client.open_sftp()
-    # f = sftp.open(LOG_PATH, 'r')
-    # f.seek(pos)
-    # with open("{}/serial-log.txt".format(currdir), 'wb') as log_file:
-    # client.connect(hostname=RESULTS_HOST, username=USERNAME)
+def run_iteration(iteration, currdir, log_file, sftp_file, ssh_client=None):
     for rate in RATES:
-        clients[SERVER].connect(hostname=SERVER_HOST, username=USERNAME)
-        clients[SERVER].exec_command(
-            './striot/examples/pipeline/server/server +RTS -N -qg')
-        clients[CLIENT2].connect(hostname=CLIENT2_HOST, username=USERNAME)
-        clients[CLIENT2].exec_command(
-            './striot/examples/pipeline/client2/client2 +RTS -N -qg')
-        tcpkf_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
-        runner = TCPKaliRunner(rate, tcpkf_name)
+        f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
+        runner = TCPKaliRunner(rate, f_name)
         runner.run()
         time.sleep(30)
-        sftp = clients[SERVER].open_sftp()
-        sftp.get(LOG_PATH, "{}/serial-log_r{}.txt".format(currdir, rate))
-        sftp.close()
-        clients[SERVER].close()
-        clients[CLIENT2].close()
+        log_file.write(sftp_file.read())
 
-
-def create_client():
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.WarningPolicy())
-    # client.connect(hostname=hostname, username=username)
-    return client
+    # stats = sftp.stat(LOG_PATH)
+    # sftp.get(LOG_PATH,
+    #          "{}/serial-log.txt".format(currdir))
+    # sftp.remove(LOG_PATH)
+    # sftp.close()
 
 
 class TCPKaliRunner():
@@ -96,11 +80,11 @@ class TCPKaliRunner():
             subprocess.run(["tcpkali", "-em",
                             self.event(EVENT_TYPE_AESON, id=self.rate),
                             "-r{}".format(self.rate),
-                            # "--dump-all",
+                            "--dump-all",
                             "--nagle=off",
                             "--write-combine=off",
                             "-T{}s".format(TEST_LENGTH),
-                            "{}:9001".format(CLIENT2_HOST)],
+                            HOSTNAME],
                            stderr=open_file,
                            stdout=open_file)
 
