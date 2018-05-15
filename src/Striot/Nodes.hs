@@ -5,6 +5,7 @@ module Striot.Nodes ( nodeSink
                     , nodeLink2
                     , nodeSource
                     , nodeSourceAmq
+                    , nodeLinkAmq
                     ) where
 
 import qualified Codec.MIME.Type                 as M (nullType)
@@ -107,17 +108,34 @@ nodeSource pay streamGraph host port = do
 --- LINK FUNCTIONS - AcitveMQ ---
 
 
+nodeLinkAmq :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLinkAmq streamGraph hostNameInput portNumInput hostNameOutput portNumOutput = withSocketsDo $ do
+    -- sockIn <- listenOn $ PortNumber portNumInput1
+    putStrLn "Starting link ..."
+    hFlush stdout
+    nodeLinkAmq' hostNameInput portNumInput streamGraph hostNameOutput portNumOutput
+
+
+nodeLinkAmq' :: (FromJSON (Event alpha), ToJSON (Event beta)) => HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeLinkAmq' hostNameInput portNumInput streamOps host port = do
+    stream <- processSocketAmq hostNameInput portNumInput
+    let result = streamOps stream
+    sendStream result host port
+
 
 --- SOURCE FUNCTIONS - ActiveMQ ---
 
-nodeSourceAmq :: ToJSON (Event beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+
+nodeSourceAmq :: ToJSON (Event beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeSourceAmq pay streamGraph host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
     let result = streamGraph stream
     sendStreamAmq result host port
 
+
 --- UTILITY FUNCTIONS ---
+
 
 readListFromSource :: IO alpha -> IO (Stream alpha)
 readListFromSource = go 0
@@ -251,15 +269,46 @@ hPutLines' handle (x:xs) = do
         BLC.hPutStrLn    handle (encode x)
         hPutLines' handle xs
 
+
 --- UTILITY FUNCTIONS - ActiveMQ ---
 
-sendStreamAmq :: ToJSON (Event alpha) => Stream alpha -> HostName -> PortNumber -> IO ()
+
+processSocketAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (Stream alpha)
+processSocketAmq host port = acceptConnectionsAmq host port >>= readEventsTChan
+
+
+acceptConnectionsAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (TChan (Event alpha))
+acceptConnectionsAmq host port = do
+    eventChan <- newTChanIO
+    _         <- forkIO $ connectionHandlerAmq host port eventChan
+    return eventChan
+
+
+connectionHandlerAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> TChan (Event alpha) -> IO ()
+connectionHandlerAmq host port eventChan = do
+    let opts = brokerOpts
+    withConnection host (read port) opts [] $ \c -> do
+        q <- newReader c "SampleQueue" "SampleQueue" [] [] iconv
+        stream <- retrieveMessages q
+        writeEventsTChan stream eventChan
+
+
+sendStreamAmq :: ToJSON (Event alpha) => Stream alpha -> HostName -> ServiceName -> IO ()
 sendStreamAmq []     _    _    = return ()
 sendStreamAmq stream host port = do
     let opts = brokerOpts
-    withConnection host (fromIntegral port) opts [] $ \c -> do
+    withConnection host (read port) opts [] $ \c -> do
         q <- newWriter c "SampleQueue" "SampleQueue" [ONoContentLen] [] oconv
         publishMessages q stream
+
+
+--- CONVERTERS ---
+iconv :: FromJSON (Event alpha) => InBound (Maybe (Event alpha))
+iconv = let iconv _ _ _ = return . decodeStrict
+        in  iconv
+
+oconv :: ToJSON (Event alpha) => OutBound (Event alpha)
+oconv = return . BLC.toStrict . encode
 
 
 brokerOpts :: [Copt]
@@ -267,18 +316,20 @@ brokerOpts = let h = (0, 2000)
              in  [ OHeartBeat h ]
 
 
-iconv :: FromJSON (Event alpha) => InBound (Maybe (Event alpha))
-iconv = let iconv _ _ _ = return . decodeStrict
-              in  iconv
-
-oconv :: ToJSON (Event alpha) => OutBound (Event alpha)
-oconv = return . BLC.toStrict . encode
-
 publishMessages :: (ToJSON (Event alpha)) => Writer (Event alpha) -> Stream alpha -> IO ()
 publishMessages _ []     = return ()
 publishMessages q (x:xs) = do
     writeQ q M.nullType [] x
     publishMessages q xs
+
+
+retrieveMessages :: (FromJSON (Event alpha)) => Reader (Maybe (Event alpha)) -> IO (Stream alpha)
+retrieveMessages q = unsafeInterleaveIO $ do
+    x <- msgContent <$> readQ q
+    let x2 = maybeToList x
+    xs <- retrieveMessages q
+    return (x2 ++ xs)
+
 
 --- SOCKETS ---
 

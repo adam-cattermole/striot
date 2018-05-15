@@ -1,18 +1,20 @@
 --import Control.Concurrent
-import           Network
-import           Striot.FunctionalIoTtypes
-import           Striot.FunctionalProcessing
-import           Striot.Nodes
-import           System.Environment
-import           System.IO
+import Network.Socket
+import Striot.FunctionalIoTtypes
+import Striot.FunctionalProcessing
+import Striot.Nodes
+import System.Environment
+import System.IO
 
-listenPort =  9001 :: PortNumber
-connectPort = 9001 :: PortNumber
+brokerPort =  "61613" :: ServiceName
+connectPort = "9001" :: ServiceName
 
 main :: IO ()
 main = do
+    podName <- getEnv "HOSTNAME"
+    brokerHost <- getEnv "AMQ_STOMP_SERVICE_HOST"
     connectHost <- getEnv "HASKELL_SERVER_SERVICE_HOST"
-    nodeLink streamGraph1 listenPort connectHost connectPort
+    nodeLinkAmq (streamGraph1 podName) brokerHost brokerPort connectHost connectPort
 
-streamGraph1 :: Stream String -> Stream String
-streamGraph1 s = streamMap (\st-> reverse st) s
+streamGraph1 :: String -> Stream String -> Stream String
+streamGraph1 podName = streamMap (\st-> podName ++ ": " ++ st)
