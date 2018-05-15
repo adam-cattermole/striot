@@ -9,18 +9,18 @@ import sys
 EVENT_TYPE_NORMAL = 0
 EVENT_TYPE_AESON = 1
 
-ITERATIONS = 5
+ITERATIONS = 3
 TEST_LENGTH = 30
-RATE = 1
+RATE = 10000
+
+CONN_CNT = [5, 6, 7, 8]
 
 USERNAME = "azure"
 RESULTS_HOST = os.environ["HASKELL_SERVER_SERVICE_HOST"]
 LOG_PATH = "/home/azure/striot/examples/pipeline/server/sw-log.txt"
 
 RATES = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
-# RATES = [1, 5]
 
-# HOSTNAME = "127.0.0.1:9002"
 HOSTNAME = "{}:9001".format(os.environ["HASKELL_CLIENT2_SERVICE_HOST"])
 
 logging.basicConfig(level=logging.INFO,
@@ -53,7 +53,7 @@ def main():
         time.sleep(sys.argv[1])
 
 
-def run_iteration(iteration, currdir, log_file, sftp_file, ssh_client=None):
+def run_iteration(currdir, log_file, sftp_file, ssh_client=None):
     for rate in RATES:
         f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
         runner = TCPKaliRunner(rate, f_name)
@@ -61,24 +61,30 @@ def run_iteration(iteration, currdir, log_file, sftp_file, ssh_client=None):
         time.sleep(30)
         log_file.write(sftp_file.read())
 
-    # stats = sftp.stat(LOG_PATH)
-    # sftp.get(LOG_PATH,
-    #          "{}/serial-log.txt".format(currdir))
-    # sftp.remove(LOG_PATH)
-    # sftp.close()
+
+def run_iteration_conn(currdir, log_file, sftp_file, ssh_client=None):
+    for conn in CONN_CNT:
+        f_name = "{}/tcpkali_r{}_c{}.txt".format(currdir, RATE, conn)
+        runner = TCPKaliRunner(RATE, f_name, conn)
+        runner.run()
+        time.sleep(30)
+        log_file.write(sftp_file.read())
 
 
 class TCPKaliRunner():
 
-    def __init__(self, rate, file):
+    def __init__(self, rate, file, conn=1):
         self.rate = rate
         self.file = file
+        self.conn = conn
 
     def run(self):
-        logging.info('Running with rate {}hz'.format(self.rate))
+        logging.info('Running with rate {}hz, c{}'.format(self.rate,
+                                                          self.conn))
         with open(self.file, 'w') as open_file:
             subprocess.run(["tcpkali", "-em",
                             self.event(EVENT_TYPE_AESON, id=self.rate),
+                            "-c{}".format(self.conn),
                             "-r{}".format(self.rate),
                             "--dump-all",
                             "--nagle=off",
