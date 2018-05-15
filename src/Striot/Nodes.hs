@@ -11,7 +11,8 @@ module Striot.Nodes ( nodeSink
 import qualified Codec.MIME.Type                 as M (nullType)
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Monad                   (forever, when)
+import           Control.Concurrent.Chan.Unagi as U
+import           Control.Monad              (forever, when)
 import           Data.Aeson
 import qualified Data.ByteString                 as B
 import qualified Data.ByteString.Char8           as BC (putStrLn)
@@ -161,18 +162,18 @@ processSocket sock = acceptConnections sock >>= readEventsTChan
 {- acceptConnections takes a socket as an argument and spins up a new thread to
 process the data received. The returned TChan object contains the data from
 the socket -}
-acceptConnections :: FromJSON (Event alpha) => Socket -> IO (TChan (Event alpha))
+acceptConnections :: FromJSON (Event alpha) => Socket -> IO (U.OutChan (Event alpha))
 acceptConnections sock = do
-    eventChan <- newTChanIO
-    _         <- forkIO $ connectionHandler sock eventChan
-    return eventChan
+    (inChan, outChan) <- U.newChan
+    _         <- forkIO $ connectionHandler sock inChan
+    return outChan
 
 
 {- connectionHandler sits accepting any new connections. Once
 accepted, it is converted to a handle and a new thread is forked to handle all
 reading. The function then loops to accept a new connection. forkFinally is used
 to ensure the thread closes the handle before it exits -}
-connectionHandler :: FromJSON (Event alpha) => Socket -> TChan (Event alpha) -> IO ()
+connectionHandler :: FromJSON (Event alpha) => Socket -> U.InChan (Event alpha) -> IO ()
 connectionHandler sockIn eventChan = forever $ do
     -- putStrLn "Awaiting new connection"
     (sock, _) <- accept sockIn
@@ -184,28 +185,24 @@ connectionHandler sockIn eventChan = forever $ do
 {- processHandle takes a Handle and TChan. All of the events are read through
 hGetLines' with the IO deferred lazily. The string list is mapped to a Stream
 and passed to writeEventsTChan -}
-processHandle :: FromJSON (Event alpha) => Handle -> TChan (Event alpha) -> IO ()
+processHandle :: FromJSON (Event alpha) => Handle -> U.InChan (Event alpha) -> IO ()
 processHandle handle eventChan = do
     byteStream <- hGetLines' handle
     let eventStream = mapMaybe decodeStrict byteStream
-    writeEventsTChan eventStream eventChan
+    U.writeList2Chan eventChan eventStream
 
 
 {- writeEventsTChan takes a TChan and Stream of the same type, and recursively
 writes the events atomically to the TChan, until an empty list -}
-writeEventsTChan :: FromJSON (Event alpha) => Stream alpha -> TChan (Event alpha) -> IO ()
-writeEventsTChan (h:t) eventChan = do
-    atomically $ writeTChan eventChan h
-    writeEventsTChan t eventChan
-writeEventsTChan [] _ = return ()
-
+writeEventsTChan :: FromJSON (Event alpha) => U.InChan (Event alpha) -> Stream alpha -> IO ()
+writeEventsTChan eventChan = mapM_ (U.writeChan eventChan)
 
 {- readEventsTChan creates a stream of events from reading the next element from
 a TChan, but the IO is deferred lazily. Only when the next value of the Stream
 is evaluated does the IO computation take place -}
-readEventsTChan :: FromJSON (Event alpha) => TChan (Event alpha) -> IO (Stream alpha)
+readEventsTChan :: FromJSON (Event alpha) => U.OutChan (Event alpha) -> IO (Stream alpha)
 readEventsTChan eventChan = System.IO.Unsafe.unsafeInterleaveIO $ do
-    x <- atomically $ readTChan eventChan
+    x <- U.readChan eventChan
     xs <- readEventsTChan eventChan
     return (x : xs)
 
@@ -277,20 +274,20 @@ processSocketAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (Str
 processSocketAmq host port = acceptConnectionsAmq host port >>= readEventsTChan
 
 
-acceptConnectionsAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (TChan (Event alpha))
+acceptConnectionsAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (U.OutChan (Event alpha))
 acceptConnectionsAmq host port = do
-    eventChan <- newTChanIO
-    _         <- forkIO $ connectionHandlerAmq host port eventChan
-    return eventChan
+    (inChan, outChan) <- U.newChan
+    _         <- forkIO $ connectionHandlerAmq host port inChan
+    return outChan
 
 
-connectionHandlerAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> TChan (Event alpha) -> IO ()
+connectionHandlerAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
 connectionHandlerAmq host port eventChan = do
     let opts = brokerOpts
     withConnection host (read port) opts [] $ \c -> do
         q <- newReader c "SampleQueue" "SampleQueue" [] [] iconv
         stream <- retrieveMessages q
-        writeEventsTChan stream eventChan
+        U.writeList2Chan eventChan stream
 
 
 sendStreamAmq :: ToJSON (Event alpha) => Stream alpha -> HostName -> ServiceName -> IO ()
