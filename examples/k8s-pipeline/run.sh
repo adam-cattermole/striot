@@ -6,6 +6,8 @@ BLUE="\\033[1;34m"
 PREFIX="striot"
 SINK="server"
 
+set -e
+
 declare -a dirs=("server" "client2" "client")
 
 build() {
@@ -33,15 +35,15 @@ build() {
   done
   log "Creating AcitveMQ Broker"
   kubectl run amq-broker --image=webcenter/activemq:latest --replicas=0 --image-pull-policy='IfNotPresent' -l name=amq-broker,all-flag=striot
-  kubectl expose deployment amq-broker --port=8161 --target-port=8161 --name=amq-web --type='NodePort' -l all-flag=striot
-  kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l all-flag=striot
-  kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l all-flag=striot
+  kubectl expose deployment amq-broker --port=8161 --target-port=8161 --name=amq-web --type='NodePort' -l name=amq-broker,all-flag=striot
+  kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l name=amq-broker,all-flag=striot
+  kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l name=amq-broker,all-flag=striot
 }
 
 start() {
   log "Starting pipeline..."
   kubectl scale deployment amq-broker --replicas=1
-  minikube service amq-broker --url
+  minikube service amq-web --url
   kubectl run haskell-server -it --image=$PREFIX/haskell-server:latest --port=9001 --image-pull-policy='IfNotPresent' --attach=False --expose -l name=haskell-server,all-flag=striot
   declare -a names=()
   for dir in "${dirs[@]:1}"
