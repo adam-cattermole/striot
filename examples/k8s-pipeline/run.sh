@@ -10,7 +10,7 @@ RESULTS_DIR="output"
 
 POD_COUNT="kubectl get pods --field-selector=status.phase=Running -o name | wc -l"
 
-TEST_TIME=1500
+TEST_TIME=1900
 
 set -e
 
@@ -39,35 +39,57 @@ build() {
   do
     log $name
     # kubectl run $name --image=$PREFIX/$name:latest --port=9001 --replicas=0 --image-pull-policy='IfNotPresent' --expose -l name=$name,all-flag=striot
-    kubectl run $name --image=$PREFIX/$name:latest --port=9001 --replicas=0 --image-pull-policy='Always' --expose -l name=$name,all-flag=striot
+    helm install -n $name --debug --set image.repository.prefix=$PREFIX --set image.repository.name=$name --set image.tag=latest ./test-chart
+    # kubectl create service clusterip $name --tcp=9001 -l name=$name,all-flag=striot
+    # kubectl run $name --image=$PREFIX/$name:latest --port=9001 --replicas=0 --image-pull-policy='Always' --expose -l name=$name,all-flag=striot
   done
 
-  log "Creating AcitveMQ Broker"
-  kubectl run amq-broker --image=webcenter/activemq:latest --replicas=0 --image-pull-policy='IfNotPresent' -l name=amq-broker,all-flag=striot --env="ACTIVEMQ_ADMIN_LOGIN=admin" --env="ACTIVEMQ_ADMIN_PASSWORD=new_password"
-  kubectl expose deployment amq-broker --port=8161 --target-port=8161 --name=amq-web --type='LoadBalancer' -l name=amq-broker,all-flag=striot
-  kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l name=amq-broker,all-flag=striot
-  kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l name=amq-broker,all-flag=striot
+  log "Creating ActiveMQ Broker"
+  kubectl run amq-broker --image=webcenter/activemq:latest --replicas=0 --image-pull-policy='IfNotPresent' -l name=amq-broker,all=striot --env="ACTIVEMQ_ADMIN_LOGIN=admin" --env="ACTIVEMQ_ADMIN_PASSWORD=new_password"
+  kubectl expose deployment amq-broker --port=8161 --target-port=8161 --name=amq-web --type='LoadBalancer' -l name=amq-broker,all=striot
+  kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l name=amq-broker,all=striot
+  kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l name=amq-broker,all=striot
 }
 
 
 start() {
   log "Starting pipeline..."
+  if [ -n "$1" ]; then
+    replicas=$1
+  else
+    replicas=1
+  fi
+
   kubectl scale deployment amq-broker --replicas=1
+  pod_count=1
+  pods_running $pod_count
   # minikube service amq-web --url
   # kubectl run haskell-server -it --image=$PREFIX/haskell-server:latest --port=9001 --image-pull-policy='Always' --attach=False --expose -l name=haskell-server,all-flag=striot
-  pod_count=1
+  log "haskell-server"
+  kubectl scale deployment haskell-server --replicas=1
+  ((pod_count++))
+  pods_running $pod_count
+
+  log "haskell-client (replicas:$replicas)"
+  kubectl scale deployment haskell-client2 --replicas=$replicas
+  ((pod_count+=$replicas))
+  pods_running $pod_count
   declare -a names=()
-  for dir in "${dirs[@]}"
+  for dir in "${dirs[@]:2}"
   do
     n=haskell-$dir
     names+=($n)
     log $n
     kubectl scale deployment $n --replicas=1
     ((pod_count++))
-    while [[ $(eval $POD_COUNT) -ne $pod_count ]]; do
-      log "Pods not running yet..."
-      sleep 5
-    done
+    pods_running $pod_count
+  done
+}
+
+pods_running() {
+  while [[ $(eval $POD_COUNT) -ne $1 ]]; do
+    log "Pods not running yet..."
+    sleep 5
   done
 }
 
@@ -80,7 +102,7 @@ output() {
 
 extract() {
   log "Extracting logs from haskell-server..."
-  SINK_POD=$(kubectl get pods --selector=name=haskell-server -o jsonpath='{.items[*].metadata.name}')
+  SINK_POD=$(kubectl get pods --selector=app=haskell-server -o jsonpath='{.items[*].metadata.name}')
   kubectl cp "${SINK_POD}:/opt/server/sw-log.txt" "${RESULTS_DIR}/serial-log.txt"
 }
 
@@ -88,7 +110,7 @@ benchmark() {
   log "Starting benchmark..."
   [[ -d "${RESULTS_DIR}" ]] || mkdir "${RESULTS_DIR}"
   build $1
-  start
+  start $1
   log "All pods running, waiting $(($TEST_TIME/60))m..."
   sleep $TEST_TIME
   extract
@@ -118,24 +140,26 @@ stop() {
 clean() {
   # eval $(minikube docker-env)
   log "Removing Kubernetes assets..."
-  kubectl delete deployments,pods,services -l all-flag=striot --now
-  log "Removing docker containers..."
-  if [ -n "$1" ]; then
-    if  [ $1 = "base" ]; then
-      log "Removing striot/striot-base..."
-      make -C ../../containers clean
-    fi
-  fi
-  declare -a names=()
+
+  # log "Removing docker containers..."
+  # if [ -n "$1" ]; then
+  #   if  [ $1 = "base" ]; then
+  #     log "Removing striot/striot-base..."
+  #     make -C ../../containers clean
+  #   fi
+  # fi
+  # declare -a names=()
   for dir in "${dirs[@]}"
   do
     n=haskell-$dir
     names+=($n)
-    if [[ -n $(docker images -q $PREFIX/$n) ]]; then
-      log $PREFIX/$n
-      docker rmi -f $PREFIX/$n
-    fi
+    helm delete --purge $n
+    # if [[ -n $(docker images -q $PREFIX/$n) ]]; then
+    #   log $PREFIX/$n
+    #   docker rmi -f $PREFIX/$n
+    # fi
   done
+  kubectl delete deployments,pods,services -l all=striot --now
 }
 
 

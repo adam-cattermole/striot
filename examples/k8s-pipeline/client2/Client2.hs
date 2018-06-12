@@ -10,6 +10,9 @@ import Control.DeepSeq
 brokerPort =  "61613" :: ServiceName
 connectPort = "9001" :: ServiceName
 
+-- brokerHost = "amq-stomp.default.svc.cluster.local" :: HostName
+-- connectHost = "haskell-server.default.svc.cluster.local" :: HostName
+
 main :: IO ()
 main = do
     podName <- getEnv "HOSTNAME"
