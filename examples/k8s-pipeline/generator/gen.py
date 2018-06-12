@@ -60,7 +60,7 @@ def run_iteration(iteration, currdir, log_file, sftp_f=None, ssh_client=None):
         f_name = "{}/tcpkali_r{}.txt".format(currdir, rate)
         runner = TCPKaliRunner(rate, f_name)
         runner.run()
-        time.sleep(30)
+        time.sleep(120)
         if (sftp_f):
             log_file.write(sftp_f.read())
 
