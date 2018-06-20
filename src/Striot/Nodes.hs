@@ -310,7 +310,10 @@ oconv = return . BLC.toStrict . encode
 
 brokerOpts :: [Copt]
 brokerOpts = let h = (0, 2000)
-             in  [ OHeartBeat h ]
+                 user = "admin"
+                 pass = "yy^U#Fca!52Y"
+             in  [ OHeartBeat h
+                 , OAuth user pass]
 
 
 publishMessages :: (ToJSON (Event alpha)) => Writer (Event alpha) -> Stream alpha -> IO ()
