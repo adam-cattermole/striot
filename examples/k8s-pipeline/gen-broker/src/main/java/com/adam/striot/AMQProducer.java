@@ -27,9 +27,11 @@ public class AMQProducer implements Runnable {
 
     public void run() {
         try {
-            ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(String.format("tcp://%s:61616", this.host));
+            ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("admin","yy^U#Fca!52Y", String.format("tcp://%s:61616", this.host));
+            //?jms.prefetchPolicy.queuePrefetch=25000
 
             Connection connection = connectionFactory.createConnection();
+
             connection.start();
 
             Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
@@ -37,6 +39,8 @@ public class AMQProducer implements Runnable {
             Destination destination = session.createQueue("SampleQueue");
 
             MessageProducer producer = session.createProducer(destination);
+            producer.setDisableMessageID(true);
+            producer.setDisableMessageTimestamp(true);
             producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
 
             logger.info("Connected to broker...");

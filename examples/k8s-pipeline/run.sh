@@ -44,8 +44,19 @@ build() {
     # kubectl run $name --image=$PREFIX/$name:latest --port=9001 --replicas=0 --image-pull-policy='Always' --expose -l name=$name,all-flag=striot
   done
 
-  log "Creating ActiveMQ Broker"
-  kubectl run amq-broker --image=webcenter/activemq:latest --replicas=0 --image-pull-policy='IfNotPresent' -l name=amq-broker,all=striot --env="ACTIVEMQ_ADMIN_LOGIN=admin" --env="ACTIVEMQ_ADMIN_PASSWORD=new_password"
+  # log "Creating ActiveMQ Broker"
+  # kubectl run amq-broker --image=webcenter/activemq:latest --replicas=0 --image-pull-policy='IfNotPresent' -l name=amq-broker,all=striot\
+  #   --env="ACTIVEMQ_ADMIN_LOGIN=admin" --env="ACTIVEMQ_ADMIN_PASSWORD=yy^U#Fca!52Y"\
+  #   --env="ACTIVEMQ_FRAME_SIZE=104857600&amp;jms.prefetchPolicy.all=25000"\
+  #   --env='ACTIVEMQ_CONFIG_MINMEMORY=1024' --env='ACTIVEMQ_CONFIG_MAXMEMORY=6044'
+  # kubectl expose deployment amq-broker --port=8161 --target-port=8161 --name=amq-web --type='LoadBalancer' -l name=amq-broker,all=striot
+  # kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l name=amq-broker,all=striot
+  # kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l name=amq-broker,all=striot
+
+  log "Creating ActiveMQ Artemis Broker"
+  kubectl run amq-broker --image=vromero/activemq-artemis:latest --replicas=0 --image-pull-policy='IfNotPresent' -l name=amq-broker,all=striot\
+    --env="ARTEMIS_USERNAME=admin" --env="ARTEMIS_PASSWORD=yy^U#Fca!52Y"\
+    --env='ARTEMIS_MIN_MEMORY=1024M' --env='ARTEMIS_MAX_MEMORY=4096M'
   kubectl expose deployment amq-broker --port=8161 --target-port=8161 --name=amq-web --type='LoadBalancer' -l name=amq-broker,all=striot
   kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l name=amq-broker,all=striot
   kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l name=amq-broker,all=striot
@@ -70,20 +81,31 @@ start() {
   ((pod_count++))
   pods_running $pod_count
 
-  log "haskell-client (replicas:$replicas)"
+  log "haskell-gen-broker"
+  kubectl scale deployment haskell-gen-broker --replicas=1
+  ((pod_count++))
+  pods_running $pod_count
+
+  log "haskell-client2 (replicas:$replicas)"
   kubectl scale deployment haskell-client2 --replicas=$replicas
   ((pod_count+=$replicas))
   pods_running $pod_count
-  declare -a names=()
-  for dir in "${dirs[@]:2}"
-  do
-    n=haskell-$dir
-    names+=($n)
-    log $n
-    kubectl scale deployment $n --replicas=1
-    ((pod_count++))
-    pods_running $pod_count
-  done
+
+  log "haskell-client"
+  kubectl scale deployment haskell-generator --replicas=1
+  ((pod_count++))
+  pods_running $pod_count
+
+  # declare -a names=()
+  # for dir in "${dirs[@]:2}"
+  # do
+  #   n=haskell-$dir
+  #   names+=($n)
+  #   log $n
+  #   kubectl scale deployment $n --replicas=1
+  #   ((pod_count++))
+  #   pods_running $pod_count
+  # done
 }
 
 pods_running() {
