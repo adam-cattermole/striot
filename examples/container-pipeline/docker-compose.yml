@@ -1,23 +1,16 @@
-source1:
-  build: source
-  stdin_open: true
-  ports:
-    - "61616"
-  tty: true
+version: '3'
+services:
 
-link:
-  build: link
-  links:
-    - source1:upstream1
-#    - source2:upstream2
-  ports:
-    - "61616"
-  stdin_open: true
-  tty: true
+  source1:
+    build: source
+    depends_on:
+      - link
 
-sink:
-  build: sink
-  links:
-    - link:upstream1
-  stdin_open: true
-  tty: true
+  link:
+    build: link
+    depends_on:
+      - sink 
+    
+  sink:
+    build: sink 
+    tty: true
