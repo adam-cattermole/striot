@@ -6,9 +6,9 @@ import GHC.Generics (Generic)
 -- import Data.Binary
 import Data.Aeson
 
-data Event alpha     =  E {id :: Int, time :: Timestamp, value :: alpha} |
-                        T {id :: Int, time :: Timestamp                } |
-                        V {id :: Int,                    value :: alpha}
+data Event alpha = Event { eventId :: Int
+                         , time    :: Maybe Timestamp
+                         , value   :: Maybe alpha}
      deriving (Eq, Ord, Show, Read, Generic)
 
 
@@ -22,11 +22,9 @@ instance (ToJSON alpha) => ToJSON (Event alpha) where
 
 
 dataEvent :: Event alpha -> Bool
-dataEvent (E id t v) = True
-dataEvent (V id v  ) = True
-dataEvent (T id t  ) = False
+dataEvent (Event eid t (Just v)) = True
+dataEvent (Event eid t Nothing)  = False
 
 timedEvent :: Event alpha -> Bool
-timedEvent (E id t v) = True
-timedEvent (V id v  ) = False
-timedEvent (T id t  ) = True
+timedEvent (Event eid (Just t) v) = True
+timedEvent (Event eid Nothing  v) = False
