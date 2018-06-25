@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-=======
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
->>>>>>> Merge pull request #37 from adam-cattermole/move-to-8.4
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
