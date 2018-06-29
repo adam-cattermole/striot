@@ -16,10 +16,10 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Striot.FunctionalIoTtypes, Striot.FunctionalProcessing, Striot.Nodes, Striot.CompileIoT
+  exposed-modules:     Striot.FunctionalIoTtypes, Striot.FunctionalProcessing, Striot.Nodes, Striot.CompileIoT, WhiskRest.WhiskConnect, WhiskRest.WhiskJsonConversion, WhiskRest.WhiskConfig
   -- other-modules:
   -- other-extensions:
-  build-depends:       base >=4.9 && <4.10, containers >=0.5 && <0.6, split >=0.2 && <0.3, time >=1.6 && <1.7, network >=2.6 && <2.8, stm >=2.4 && <2.5, HTF, aeson, bytestring, unagi-chan, algebraic-graphs >= 0.1, mqtt-hs >=1.0.0, text >=1.2 && <1.3, bytestring >=0.10 && <0.11, lens-aeson >=1.0 && <1.1, wreq >=0.5 && <0.6, connection >=0.2 && <0.3, http-client >=0.5.7.0, http-client-tls >=0.3 && <0.4, string-conversions >=0.4 && <0.5, unordered-containers >=0.2.7.2
+  build-depends:       base >=4.9 && <4.10, containers >=0.5 && <0.6, split >=0.2 && <0.3, time >=1.6 && <1.7, network >=2.6 && <2.8, stm >=2.4 && <2.5, HTF, aeson, bytestring, unagi-chan, algebraic-graphs >= 0.1, mqtt-hs, text, wreq, connection, http-client, http-client-tls, string-conversions, lens
   hs-source-dirs:      src
   default-language:    Haskell98
 
@@ -27,5 +27,5 @@ test-suite test-striot
   hs-source-dirs:      src
   type:                exitcode-stdio-1.0
   Main-is:             TestMain.hs
-  build-depends:       base >=4.9 && <4.10, containers >=0.5 && <0.6, split >=0.2 && <0.3, time >=1.6 && <1.7, network >=2.6 && <2.7, stm >=2.4 && <2.5, HTF, graphviz, text >= 1.2, aeson, algebraic-graphs >= 0.1
+  build-depends:       base >=4.9 && <4.10, containers >=0.5 && <0.6, split >=0.2 && <0.3, time >=1.6 && <1.7, network >=2.6 && <2.7, stm >=2.4 && <2.5, HTF, aeson, bytestring, unagi-chan,  algebraic-graphs >= 0.1, mqtt-hs, text, wreq, connection, http-client, http-client-tls, string-conversions, lens
   Default-language:    Haskell98

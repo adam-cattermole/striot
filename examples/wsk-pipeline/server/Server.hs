@@ -1,35 +1,26 @@
-import System.IO
-import Data.List
 import Striot.FunctionalProcessing
 import Striot.FunctionalIoTtypes
 import Striot.Nodes
-import Network
-
+import Network.Socket (ServiceName)
 import Data.Time (getCurrentTime, diffUTCTime, NominalDiffTime)
 
-listenPort = 9001 :: PortNumber
+
+listenPort = "9001" :: ServiceName
+
 
 main :: IO ()
 main = do
     writeFile "sw-log.txt" ""
-    nodeSink streamGraphid printStreamDelay listenPort
+    nodeSink streamGraphid printStream listenPort
 
-streamGraphid :: Stream (Int, Int) -> Stream (Int, Int)
+
+streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
 
--- streamGraph1 :: Stream Int -> Stream [Int]
--- streamGraph1= streamWindowAggregate (chopTime 1) fn
-
--- fn :: [Int] -> [Int]
--- fn e@(x:xs) =
---     let l = length e
---         currenthz = averageVal l (head e)
---         client2hz = averageVal l (last e) -- averaging over window in case it changes mid window
---     in [currenthz, client2hz, l]
--- fn [] = [0]
 
 averageVal :: Int -> [Int] -> Int
 averageVal l xs = sum xs `div` l
+
 
 printStreamDelay :: Stream (Int,Int) -> IO ()
 printStreamDelay (e@(E id t v):r) = do
@@ -43,14 +34,15 @@ printStreamDelay (e:r) = do
     printStreamDelay r
 printStreamDelay [] = return ()
 
-printStream :: Stream Int -> IO ()
-printStream (e:r) = do
-    print e
-    printStream r
+
+printStream :: Stream String -> IO ()
+printStream stream = mapM_ print stream
+
 
 mapTimeDelay :: NominalDiffTime -> Event (Int, Int) -> Event (Int, Int, Float)
 mapTimeDelay delay (E id t v) = E id t newv
     where newv = (fst v, snd v, roundN 15 (toRational delay))
+
 
 roundN :: Int -> Rational -> Float
 roundN n f = fromInteger (round $ f * (10^n)) / (10.0^^n)

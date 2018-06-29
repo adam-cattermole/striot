@@ -1,120 +1,77 @@
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
                     , nodeLinkWhisk
                     , nodeLink2
                     , nodeSource
-                    , nodeMqttSource
-                    , nodeMqttByTopicSource
                     ) where
 
 import           Control.Concurrent
-import           Control.Concurrent.STM
+-- import           Control.Concurrent.STM
 import           Control.Concurrent.Chan.Unagi as U
 import           Control.Monad              (forever, when)
 import           Data.Aeson
 import qualified Data.ByteString            as B -- (unpack)
 import qualified Data.ByteString.Char8      as BC (putStrLn)
 import qualified Data.ByteString.Lazy.Char8 as BLC (hPutStrLn, putStrLn)
-import           Data.Char                     (chr)
-import           Data.List
-import           Data.Text                     (Text)
 import           Data.Maybe
 import           Data.Time                  (getCurrentTime)
-import qualified Network.MQTT                  as MQTT
 import           Network.Socket
 import           Striot.FunctionalIoTtypes
-import           System.Exit                   (exitFailure)
 import           System.IO
 import           System.IO.Unsafe
 import           WhiskRest.WhiskConnect
-import           WhiskRest.WhiskJsonConversion
+
 
 ----- START: WHISK LINK -----
 
-nodeLinkWhisk :: Read alpha => (Show beta, Read beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
+-- (FromJSON (Event alpha), ToJSON (Event beta))
+nodeLinkWhisk :: (FromJSON (Event alpha), ToJSON (Event alpha), FromJSON beta, ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> ServiceName -> HostName -> ServiceName -> IO ()
 nodeLinkWhisk fn portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
-    sockIn <- listenOn $ PortNumber portNumInput1
+    sockIn <- listenSocket portNumInput1
     putStrLn "Starting (WHISK) link ..."
     hFlush stdout
     nodeLinkWhisk' sockIn fn hostNameOutput portNumOutput
 
-nodeLinkWhisk' :: Read alpha => (Show beta, Read beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
+nodeLinkWhisk' :: (FromJSON (Event alpha), ToJSON (Event alpha), FromJSON beta, ToJSON (Event beta)) => Socket -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeLinkWhisk' sock fn host port = do
-    -- activationChan <- newTChanIO
-    -- outputChan <- newTChanIO
-    (handle, stream) <- readEventStreamFromSocket sock   -- read stream of Strings from socket
-    -- _ <- forkIO $ forever $ handleActivations activationChan outputChan
-    let output = fn stream
-    -- Result is generated and continually recurses while sendStream recursively
-    -- sends the output onwards
-    result <- whiskRunner' output
-    sendStream result host port
-
-    hClose handle
-    nodeLinkWhisk' sock fn host port
+    -- processSocket is reading from a channel, written to from all threads for
+    --  each connection
+    stream <- processSocket sock
+    -- Simillarly processWhisk is reading from a channel, written to by each
+    --  thread - one is generated for the invocation of every event
+    -- We pass 'fn' which should contain the types of the function that is being
+    --  performed within OpenWhisk - otherwise we do not know what types we
+    --  must serialise to / from
+    output <- processWhisk fn stream
+    sendStream output host port
 
 
-whiskRunner :: (Show alpha, Read alpha) => Stream alpha -> TChan Text -> TChan (Event alpha) -> IO (Stream alpha)
-whiskRunner [] activationChan outputChan = do
-    return []
-whiskRunner (e:r) activationChan outputChan = do
-    -- Activate and add to TChan
-    actId <- invokeAction e
-    atomically $ writeTChan activationChan actId
 
-    -- Check if we have output
-    pay <- atomically $ tryReadTChan outputChan
-    go pay
+processWhisk :: (ToJSON (Event alpha), FromJSON beta) => (Stream alpha -> Stream beta) -> Stream alpha -> IO (Stream beta)
+processWhisk fn stream = whiskRunner fn stream >>= readEventsTChan
+
+
+whiskRunner :: (ToJSON (Event alpha), FromJSON beta) => (Stream alpha -> Stream beta) -> Stream alpha -> IO (U.OutChan (Event beta))
+whiskRunner fn stream = do
+    (inChan, outChan) <- U.newChan
+    _         <- forkIO $ whiskConnections fn stream inChan
+    return outChan
+
+
+whiskConnections :: (ToJSON (Event alpha), FromJSON beta) => (Stream alpha -> Stream beta) -> Stream alpha -> U.InChan (Event beta) -> IO ()
+whiskConnections _  []     _         = return ()
+whiskConnections fn (h:xs) eventChan = do
+    -- putStrLn "Forking to process new whisk event"
+    _ <- forkIO $ do x <- invokeAction h >>= getActivationRetry retryCount
+                     U.writeChan eventChan x
+    whiskConnections fn xs eventChan
     where
-        go pay =
-            if isJust pay then do
-                let (Just msg) = pay
-                wr <- System.IO.Unsafe.unsafeInterleaveIO (whiskRunner r activationChan outputChan)
-                return (msg:wr)
-            else
-                whiskRunner r activationChan outputChan
-
-whiskRunner' :: (Show alpha, Read alpha) => Stream alpha -> IO (Stream alpha)
-whiskRunner' [] = return []
-whiskRunner' [e] = System.IO.Unsafe.unsafeInterleaveIO $ do
-    x <- whiskRunner'' e
-    return [x]
-whiskRunner' (e:r) = System.IO.Unsafe.unsafeInterleaveIO $ do
-    x <- whiskRunner'' e
-    xs <- whiskRunner' r
-    return (x:xs)
-
-whiskRunner'' :: (Show alpha, Read alpha) => Event alpha -> IO (Event alpha)
-whiskRunner'' e = do
-    actId <- invokeAction e
-    eJson <- getActivationRetry 60 actId
-    return $ fromEventJson eJson
-
-
--- hGetLines' :: Handle -> IO [String]
--- hGetLines' handle = System.IO.Unsafe.unsafeInterleaveIO $ do
---     readable <- hIsReadable handle
---     eof <- hIsEOF handle
---     if not eof && readable
---         then do
---             x <- hGetLine handle
---             xs <- hGetLines' handle
---             -- print x
---             return (x:xs)
---      else return []
-
-handleActivations :: (Read alpha) => TChan Text -> TChan (Event alpha) -> IO ()
-handleActivations activationChan outputChan = do
-    actId <- atomically $ readTChan activationChan
-    eJson <- getActivationRetry 60 actId
-    atomically $ writeTChan outputChan (fromEventJson eJson)
-
-
------ END: WHISK LINK -----
+        retryCount = 60
 
 
 --- SINK FUNCTIONS ---
@@ -196,85 +153,6 @@ nodeSource pay streamGraph host port = do
     let result = streamGraph stream
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
-
-
------ START: MQTT SOURCE -----
-
-nodeMqttSource :: Read alpha => Show beta => HostName -> [MQTT.Topic] -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
-nodeMqttSource mqttHost topics fn host port = do
-    pubChan <- setupMqtt topics mqttHost
-    nodeSource (getMqttMsg pubChan) fn host port
-
-nodeMqttByTopicSource :: Read alpha => Show beta => HostName -> [MQTT.Topic] -> MQTT.Topic -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
-nodeMqttByTopicSource mqttHost topics selectT fn host port = do
-    pubChan <- setupMqtt topics mqttHost
-    nodeSource (getMqttMsgByTopic pubChan selectT) fn host port
-
--- TChan (MQTT.Message 'MQTT.PUBLISH) ->
-setupMqtt :: [MQTT.Topic] -> HostName -> IO (TChan (MQTT.Message 'MQTT.PUBLISH))
-setupMqtt topics mqttHost = do
-    pubChan <- newTChanIO
-    cmds <- MQTT.mkCommands
-    let conf = (MQTT.defaultConfig cmds pubChan)
-                  { MQTT.cHost = mqttHost
-                  , MQTT.cUsername = Just "mqtt-hs" }
-
-    -- Attempt to subscribe to individual topics
-    _ <- forkIO $ do
-        qosGranted <- MQTT.subscribe conf $ map (\x -> (x, MQTT.Handshake)) topics
-        case qosGranted of
-            hs -> putStrLn "Topic Handshake Success!" -- forever $ atomically (readTChan pubChan) >>= handleMsg
-                where hs = map (const MQTT.Handshake) topics
-            _ -> do
-                hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
-                exitFailure
-
-      -- this will throw IOExceptions
-    _ <- forkIO $ do
-        terminated <- MQTT.run conf
-        print terminated
-    threadDelay (1 * 1000 * 1000)
-    return pubChan
-
-getMqttMsg :: Read alpha => TChan (MQTT.Message 'MQTT.PUBLISH) -> IO alpha
-getMqttMsg pubChan = do
-    message <- atomically (readTChan pubChan) >>= handleMsg
-    return $ read message
-
-handleMsg :: MQTT.Message 'MQTT.PUBLISH -> IO String
-handleMsg msg =
-    let (t,p,l) = extractMsg msg
-    in return $ convertBsToString p
-
-getMqttMsgByTopic :: Read alpha => TChan (MQTT.Message 'MQTT.PUBLISH) -> MQTT.Topic -> IO alpha
-getMqttMsgByTopic pubChan topic = do
-    message <- atomically (readTChan pubChan) >>= handleMsgByTopic topic
-    case message of
-        Just m  -> return $ read m
-        Nothing -> getMqttMsgByTopic pubChan topic
-
-handleMsgByTopic :: MQTT.Topic -> MQTT.Message 'MQTT.PUBLISH -> IO (Maybe String)
-handleMsgByTopic topic msg =
-    let (t,p,l) = extractMsg msg
-    in if topic == t then
-        return $ Just $ convertBsToString p
-    else
-        return Nothing
-
-extractMsg :: MQTT.Message 'MQTT.PUBLISH -> (MQTT.Topic, ByteString, [Text])
-extractMsg msg =
-    let t = MQTT.topic $ MQTT.body msg
-        p = MQTT.payload $ MQTT.body msg
-        l = MQTT.getLevels t
-    in (t,p,l)
-
-
----- HELPER FUNCTIONS ----
-
-convertBsToString :: ByteString -> String
-convertBsToString = map (chr. fromEnum) . unpack
-
------ END: MQTT SOURCE -----
 
 --- UTILITY FUNCTIONS ---
 

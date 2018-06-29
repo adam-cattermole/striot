@@ -9,7 +9,7 @@ RUN apt-get update && apt-get upgrade -y
 
 # Copy these first
 COPY striot/striot.cabal /opt/striot/
-COPY striot/license.txt /opt/striot/
+COPY striot/LICENSE /opt/striot/
 # COPY striot /opt/striot
 # COPY whisk-rest /opt/whisk-rest
 # install extras for whisk-rest

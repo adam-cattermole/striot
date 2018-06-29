@@ -12,7 +12,7 @@ echo "Using $IMAGE_NAME as the image name"
 
 echo "Copying Striot"
 mkdir -p striot/
-cp -R ../../../../license.txt striot/
+cp -R ../../../../LICENSE striot/
 cp -R ../../../../striot.cabal striot/
 cp -R ../../../../src striot/
 

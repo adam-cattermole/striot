@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Utility.Wrapper
 (
@@ -6,22 +7,13 @@ runner
 ) where
 
 import System.Environment
-
-import Text.ParserCombinators.ReadP
-import qualified Data.Text as T2 (unpack)
-import qualified Data.Text.Lazy.Encoding as T
-import Data.Text.Lazy (Text, replace, pack)
-import qualified Data.ByteString.Lazy.Char8 as Char8 (ByteString, unpack, putStrLn)
-import Data.String.Conversions (cs)
+import qualified Data.ByteString.Lazy.Char8 as BLC (putStrLn, pack)
 import Data.Aeson
-import Data.Char
-
-import Control.Monad
+import Control.Monad (when)
 
 import Striot.FunctionalIoTtypes
-import WhiskRest.WhiskJsonConversion
 
-runner :: (Show alpha, Read alpha) => (alpha -> alpha) -> IO ()
+runner :: (ToJSON (Event beta), FromJSON (Event alpha), FromJSON alpha) => (alpha -> beta) -> IO ()
 runner fun = do
     -- decode input to Event
     -- run function on Event alpha
@@ -31,40 +23,11 @@ runner fun = do
     -- Grab command line args and error if there are none
     args <- getArgs
     when (null args) $ error "No arguments passed in!"
-    let input = fetchInput $ head args
+    print $ "First arg: " ++ head args
+    let input = decode . BLC.pack $ head args
     case input of
         Just (E i t v) -> do
             let output = E i t (fun v)
-            Char8.putStrLn $ encodeEvent output
-        Nothing ->
+            BLC.putStrLn $ encode output
+        _ ->
             error "wsk-error: Failed to convert input to JSON"
-
-
--- test function
--- getArgs' :: IO [String]
--- getArgs' = return ["{\\\"body\\\": \\\"\\\"TCPKaliMsgTS-0005620b3b698a79.\\\"\\\", \\\"uid\\\": 1, \\\"timestamp\\\": \\\"2017-11-21 16:30:00 UTC\\\"}"]
--- getArgs' = return ["{\\\"body\\\": \\\"[1.6e-2,0.144,-0.992]\\\", \\\"uid\\\": 8, \\\"timestamp\\\": \\\"2017-10-04 15:08:52.79031279 UTC\\\"}\""]
--- getArgs' = return ["\"{\\\\\\\"body\\\\\\\": \\\\\\\"\\\\\\\\\\\\\\\"TCPKaliMsgTS-0005620a83d91718.\\\\\\\\\\\\\\\"\\\\\\\", \\\\\\\"uid\\\\\\\": 1, \\\\\\\"timestamp\\\\\\\": \\\\\\\"2017-11-21 16:30:00 UTC\\\\\\\"}\\\"\""]
-
-
-fetchInput :: (Read alpha) => String -> Maybe (Event alpha)
-fetchInput arg =
-    let bs = T.encodeUtf8 . fixInputString $ arg
-    in decodeEvent bs
-
--- This is pretty hacky, need to find a better solution here
-fixInputString :: String -> Text
-fixInputString s = replace "\"\"," "\\\"\"," . replace " \"\"" " \"\\\"" . replace "}\"" "}" . replace "\"{" "{" . replace "\\\"" "\"" $ pack s
-
-
-
-
--- eventParse =
-    -- keyValParse*3
--- fixInputString' :: String -> String -> Int -> String
--- fixInputString' (x:xs) output flag
---     | flag == 0 =
---         if x /= '\\'
---             then fixInputString' xs (output ++ [x]) 0
---             else fixInputString' xs output 1
---     | flag == 1 =

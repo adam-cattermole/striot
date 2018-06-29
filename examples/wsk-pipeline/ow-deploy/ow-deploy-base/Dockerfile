@@ -1,5 +1,5 @@
 # Dockerfile for example whisk docker action
-FROM openwhisk/dockerskeleton
+FROM openwhisk/dockerskeleton:latest
 
 ENV FLASK_PROXY_PORT 8080
 
@@ -7,8 +7,8 @@ ENV FLASK_PROXY_PORT 8080
 # ADD requirements.txt /action/requirements.txt
 
 ### Install all required dependencies and update them
-RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/main >> /etc/apk/repositories \
-  && echo http://dl-cdn.alpinelinux.org/alpine/edge/community >> /etc/apk/repositories \
+RUN echo http://dl-cdn.alpinelinux.org/alpine/v3.7/main >> /etc/apk/repositories \
+  && echo http://dl-cdn.alpinelinux.org/alpine/v3.7/community >> /etc/apk/repositories \
   && apk upgrade --update-cache --available \
   && apk add --no-cache --virtual .build-deps \
   musl-dev \
@@ -17,8 +17,9 @@ RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/main >> /etc/apk/repositories
   gcc \
   ghc \
   cabal \
-  && cabal update
-
+  wget \
+  && cabal update \
+  && cabal install happy
 
 ### Install project specific Haskell dependencies and compile source file(s)
 # RUN cd /action; \
@@ -26,7 +27,7 @@ RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/main >> /etc/apk/repositories
 
 # Copy these first
 COPY striot/striot.cabal /opt/striot/
-COPY striot/license.txt /opt/striot/
+COPY striot/LICENSE /opt/striot/
 
 WORKDIR /opt/striot
 

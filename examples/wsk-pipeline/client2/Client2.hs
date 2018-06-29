@@ -1,20 +1,21 @@
---import Network
---import Control.Concurrent
-import System.IO
 import Striot.FunctionalProcessing
 import Striot.FunctionalIoTtypes
 import Striot.Nodes
-import Network
+import Network.Socket (HostName, ServiceName)
 
-listenPort =  9002 :: PortNumber
-connectPort = 9001 :: PortNumber
-connectHost = "haskellserver" :: HostName
+
+listenPort =  "9001" :: ServiceName
+connectPort = "9001" :: ServiceName
+connectHost = "server" :: HostName
+
 
 main :: IO ()
-main = nodeLinkWhisk streamGraphid listenPort connectHost connectPort
+main = nodeLink streamGraphid listenPort connectHost connectPort
+
 
 streamGraphid :: Stream String -> Stream String
 streamGraphid = Prelude.id
+
 
 streamGraph1 :: Stream Int -> Stream [Int]
 streamGraph1 = streamWindowAggregate (slidingTime 1) fn
