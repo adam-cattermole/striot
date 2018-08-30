@@ -10,6 +10,5 @@ COPY . /opt/client2
 # Compile
 RUN ghc Client2.hs
 
-# Run the client 
+# Run the client
 CMD ["/opt/client2/Client2"]
-

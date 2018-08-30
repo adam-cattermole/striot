@@ -14,4 +14,4 @@ RUN ghc Server.hs
 EXPOSE 9001
 
 # Run the server
-CMD /opt/server/Server
+CMD ["/opt/server/Server"]

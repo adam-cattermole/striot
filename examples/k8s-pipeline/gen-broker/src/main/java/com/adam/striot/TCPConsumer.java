@@ -8,7 +8,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Queue;
+import java.util.concurrent.LinkedBlockingQueue;
+
 
 
 /**
@@ -18,11 +19,12 @@ public class TCPConsumer implements Runnable  {
 
     private final static Logger logger = LoggerFactory.getLogger(TCPConsumer.class);
 
-    private Queue<String> buffer;
+    private LinkedBlockingQueue<String> buffer;
 
-    public TCPConsumer(Queue<String> buffer) {
+    public TCPConsumer(LinkedBlockingQueue<String> buffer) {
         this.buffer = buffer;
     }
+
 
     public void run() {
         while (true) {
@@ -42,16 +44,21 @@ public class TCPConsumer implements Runnable  {
             logger.info("Connected to gen...");
 
             String inputLine;
-            while ((inputLine = in.readLine()) != null) {
+            try {
+                while ((inputLine = in.readLine()) != null) {
 //                logger.info(inputLine);
-                this.buffer.offer(inputLine);
+                    this.buffer.put(inputLine);
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                System.exit(1);
             }
 
             in.close();
             clientSocket.close();
             serverSocket.close();
 
-            logger.info("Connected closed...");
+            logger.info("Connection closed...");
 
         } catch (IOException e) {
             logger.error("Exception caught when trying to listen on port 9001 or listening for a connection");

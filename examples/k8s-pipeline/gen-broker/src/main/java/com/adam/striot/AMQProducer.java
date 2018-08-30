@@ -5,8 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.jms.*;
-
-import java.util.Queue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 
 /**
@@ -17,45 +16,53 @@ public class AMQProducer implements Runnable {
     private final static Logger logger = LoggerFactory.getLogger(AMQProducer.class);
 
     private String host;
-    private Queue<String> buffer;
+    private LinkedBlockingQueue<String> buffer;
 
 
-    public AMQProducer(String host, Queue<String> buffer) {
+    public AMQProducer(String host, LinkedBlockingQueue<String> buffer) {
         this.host = host;
         this.buffer = buffer;
     }
 
     public void run() {
+        while (true) {
+            try {
+                produce();
+            } catch (Exception e) {
+                logger.error("Exception {} caught, restarting connection...", e.getClass().getCanonicalName());
+
+            }
+        }
+    }
+
+    public void produce() throws Exception {
+        Connection connection = null;
         try {
-            ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("admin","yy^U#Fca!52Y", String.format("tcp://%s:61616", this.host));
+            ConnectionFactory connectionFactory = new ActiveMQConnectionFactory("admin", "yy^U#Fca!52Y", String.format("tcp://%s:61616", this.host));
             //?jms.prefetchPolicy.queuePrefetch=25000
 
-            Connection connection = connectionFactory.createConnection();
+            connection = connectionFactory.createConnection();
 
-            connection.start();
+            Session session = connection.createSession(false, Session.DUPS_OK_ACKNOWLEDGE);
 
-            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
-
-            Destination destination = session.createQueue("SampleQueue");
-
+            Queue destination = session.createQueue("SampleQueue");
             MessageProducer producer = session.createProducer(destination);
             producer.setDisableMessageID(true);
             producer.setDisableMessageTimestamp(true);
             producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
+            connection.start();
 
             logger.info("Connected to broker...");
 
             while (true) {
-                if (!this.buffer.isEmpty()) {
-                    String out = this.buffer.poll();
-//                    logger.info("Writing message: {}", out);
-//                    TextMessage message = session.createTextMessage(out);
-                    producer.send(session.createTextMessage(out));
-                }
+                String out = this.buffer.take();
+                producer.send(session.createTextMessage(out));
+            }
+        } finally {
+            if (connection != null) {
+                connection.close();
             }
 
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 

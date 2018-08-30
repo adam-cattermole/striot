@@ -10,7 +10,7 @@ portNum  = "61613"::ServiceName
 
 main :: IO ()
 main = do
-   hostName <- getEnv "AMQ_STOMP_SERVICE_HOST"
+   hostName <- getEnv "AMQ_BROKER_SERVICE_HOST"
    threadDelay (1 * 1000 * 1000)
    nodeSourceAmq src1 streamGraph2 hostName portNum -- processes source before sending it to another node
 
