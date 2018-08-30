@@ -1,4 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
@@ -6,6 +8,7 @@ module Striot.Nodes ( nodeSink
                     , nodeSource
                     , nodeSourceAmq
                     , nodeLinkAmq
+                    , nodeLinkAmqMqtt
                     ) where
 
 import qualified Codec.MIME.Type                 as M (nullType)
@@ -19,11 +22,14 @@ import qualified Data.ByteString.Char8           as BC (putStrLn)
 import qualified Data.ByteString.Lazy.Char8      as BLC (hPutStrLn, putStrLn, toStrict)
 import           Data.Maybe
 import           Data.Time                  (getCurrentTime)
+import qualified Data.Text                      as T
 import           Network.Socket
 import           Network.Mom.Stompl.Client.Queue
+import qualified Network.MQTT             as MQTT
 import           Striot.FunctionalIoTtypes
 import           System.IO
 import           System.IO.Unsafe
+import           System.Exit                (exitFailure)
 
 
 --- SINK FUNCTIONS ---
@@ -120,6 +126,21 @@ nodeLinkAmq streamGraph hostNameInput portNumInput hostNameOutput portNumOutput 
 nodeLinkAmq' :: (FromJSON (Event alpha), ToJSON (Event beta)) => HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeLinkAmq' hostNameInput portNumInput streamOps host port = do
     stream <- processSocketAmq hostNameInput portNumInput
+    let result = streamOps stream
+    sendStream result host port
+
+
+nodeLinkAmqMqtt :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLinkAmqMqtt streamGraph podNameInput hostNameInput portNumInput hostNameOutput portNumOutput = withSocketsDo $ do
+    -- sockIn <- listenOn $ PortNumber portNumInput1
+    putStrLn "Starting link ..."
+    hFlush stdout
+    nodeLinkAmqMqtt' podNameInput hostNameInput portNumInput streamGraph hostNameOutput portNumOutput
+
+
+nodeLinkAmqMqtt' :: (FromJSON (Event alpha), ToJSON (Event beta)) => String -> HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeLinkAmqMqtt' podNameInput hostNameInput portNumInput streamOps host port = do
+    stream <- processSocketAmqMqtt podNameInput hostNameInput portNumInput
     let result = streamOps stream
     sendStream result host port
 
@@ -286,8 +307,7 @@ connectionHandlerAmq host port eventChan = do
     let opts = brokerOpts
     withConnection host (read port) opts [] $ \c -> do
         q <- newReader c "SampleQueue" "SampleQueue" [] [] iconv
-        stream <- retrieveMessages q
-        U.writeList2Chan eventChan stream
+        retrieveMessages q >>= U.writeList2Chan eventChan
 
 
 sendStreamAmq :: ToJSON (Event alpha) => Stream alpha -> HostName -> ServiceName -> IO ()
@@ -329,6 +349,85 @@ retrieveMessages q = unsafeInterleaveIO $ do
     let x2 = maybeToList x
     xs <- retrieveMessages q
     return (x2 ++ xs)
+
+
+--- AMQ MQTT ---
+
+runMqtt :: T.Text -> [MQTT.Topic] -> HostName -> PortNumber -> IO (MQTT.Config, TChan (MQTT.Message 'MQTT.PUBLISH))
+runMqtt podName topics host port = do
+    pubChan <- newTChanIO
+    cmds <- MQTT.mkCommands
+    let conf = (MQTT.defaultConfig cmds pubChan)
+                    { MQTT.cHost = host
+                    , MQTT.cPort = port
+                    , MQTT.cUsername = Just "admin"
+                    , MQTT.cPassword = Just "yy^U#Fca!52Y"
+                    , MQTT.cClientID = podName
+                    , MQTT.cKeepAlive = Just 10}
+
+    -- Attempt to subscribe to individual topics
+    _ <- forkIO $ do
+        putStrLn "Subscribe to topics"
+        qosGranted <- MQTT.subscribe conf $ map (\x -> (x, MQTT.NoConfirm)) topics
+        let isHs x =
+                case x of
+                    MQTT.NoConfirm -> True
+                    _              -> False
+        if length (filter isHs qosGranted) == length topics
+            then putStrLn "Topic Handshake Success!"
+            else do
+                hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
+                exitFailure
+
+    -- -- this will throw IOExceptions
+    _ <- forkIO $ do
+        putStrLn "Run MQTT client"
+        terminated <- MQTT.run conf
+        print terminated
+    threadDelay 1000000         -- sleep 1 second
+    return (conf, pubChan)
+
+
+processSocketAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> IO (Stream alpha)
+processSocketAmqMqtt podName host port = acceptConnectionsAmqMqtt podName host port >>= readEventsTChan
+
+acceptConnectionsAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> IO (U.OutChan (Event alpha))
+acceptConnectionsAmqMqtt podName host port = do
+    (inChan, outChan) <- U.newChan
+    _         <- forkIO $ connectionHandlerAmqMqtt podName host port inChan
+    return outChan
+
+
+connectionHandlerAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
+connectionHandlerAmqMqtt podName host port eventChan = do
+    (conf, messageChan) <- runMqtt (T.pack podName) mqttTopics host (read port)
+    retrieveMessagesMqtt messageChan >>= U.writeList2Chan eventChan
+
+
+retrieveMessagesMqtt :: (FromJSON (Event alpha)) => TChan (MQTT.Message 'MQTT.PUBLISH) -> IO (Stream alpha)
+retrieveMessagesMqtt messageChan = unsafeInterleaveIO $ do
+    x <- decodeStrict . MQTT.payload . MQTT.body <$> atomically (readTChan messageChan)
+    -- let x2 = case x of
+    --         Just newe -> [newe]
+    --         Nothing -> []
+    xs <- retrieveMessagesMqtt messageChan
+    case x of
+        Just newe -> return (newe:xs)
+        Nothing -> return xs
+    -- return (x2 ++ xs)
+
+
+-- mqttHost :: HostName
+-- mqttHost = "artemis-broker.eastus.cloudapp.azure.com"
+
+-- mqttPort :: PortNumber
+-- mqttPort = 1883
+
+mqttTopics :: [MQTT.Topic]
+mqttTopics = ["SampleQueue"]
+
+-- mqttQoSLevel :: MQTT.QoS
+-- mqttQoSLevel = MQTT.Handshake
 
 
 --- SOCKETS ---

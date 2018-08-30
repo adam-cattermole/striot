@@ -10,3 +10,5 @@ RUN mvn compile && \
     mvn install
 
 CMD ["java", "-jar", "target/gen-broker-1.0-SNAPSHOT.jar"]
+
+# java -jar -Xms6G -Xmx6G -XX:+UseG1GC target/gen-broker-1.0-SNAPSHOT.jar

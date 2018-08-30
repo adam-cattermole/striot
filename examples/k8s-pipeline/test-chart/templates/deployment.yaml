@@ -27,6 +27,9 @@ spec:
           ports:
             - containerPort: 9001
               protocol: TCP
+          env:
+            - name: "AMQ_BROKER_SERVICE_HOST"
+              value: {{ .Values.amqBroker.host }}
           # livenessProbe:
           #   httpGet:
           #     path: /

@@ -6,6 +6,8 @@ BLUE="\\033[1;34m"
 PREFIX="adamcattermole"
 SINK="server"
 
+AMQ_BROKER="artemis-broker.eastus.cloudapp.azure.com"
+
 RESULTS_DIR="output"
 
 POD_COUNT="kubectl get pods --field-selector=status.phase=Running -o name | wc -l"
@@ -14,7 +16,8 @@ TEST_TIME=1900
 
 set -e
 
-declare -a dirs=("server" "client2" "gen-broker" "generator")
+# declare -a dirs=("server" "client2" "gen-broker" "generator")
+declare -a dirs=("server" "client2")
 
 build() {
     log "Creating docker containers..."
@@ -39,7 +42,7 @@ build() {
   do
     log $name
     # kubectl run $name --image=$PREFIX/$name:latest --port=9001 --replicas=0 --image-pull-policy='IfNotPresent' --expose -l name=$name,all-flag=striot
-    helm install -n $name --debug --set image.repository.prefix=$PREFIX --set image.repository.name=$name --set image.tag=latest ./test-chart
+    helm install -n $name --debug --set image.repository.prefix=$PREFIX --set image.repository.name=$name --set image.tag=latest --set amqBroker.host=$AMQ_BROKER ./test-chart
     # kubectl create service clusterip $name --tcp=9001 -l name=$name,all-flag=striot
     # kubectl run $name --image=$PREFIX/$name:latest --port=9001 --replicas=0 --image-pull-policy='Always' --expose -l name=$name,all-flag=striot
   done
@@ -53,13 +56,13 @@ build() {
   # kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l name=amq-broker,all=striot
   # kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l name=amq-broker,all=striot
 
-  log "Creating ActiveMQ Artemis Broker"
-  kubectl run amq-broker --image=vromero/activemq-artemis:latest --replicas=0 --image-pull-policy='IfNotPresent' -l name=amq-broker,all=striot\
-    --env="ARTEMIS_USERNAME=admin" --env="ARTEMIS_PASSWORD=yy^U#Fca!52Y"\
-    --env='ARTEMIS_MIN_MEMORY=1024M' --env='ARTEMIS_MAX_MEMORY=4096M'
-  kubectl expose deployment amq-broker --port=8161 --target-port=8161 --name=amq-web --type='LoadBalancer' -l name=amq-broker,all=striot
-  kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l name=amq-broker,all=striot
-  kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l name=amq-broker,all=striot
+  # log "Creating ActiveMQ Artemis Broker"
+  # kubectl run amq-broker --image=vromero/activemq-artemis:latest --replicas=0 --image-pull-policy='IfNotPresent' -l name=amq-broker,all=striot\
+  #   --env="ARTEMIS_USERNAME=admin" --env="ARTEMIS_PASSWORD=yy^U#Fca!52Y"\
+  #   --env='ARTEMIS_MIN_MEMORY=1024M' --env='ARTEMIS_MAX_MEMORY=4096M'
+  # kubectl expose deployment amq-broker --port=8161 --target-port=8161 --name=amq-web --type='LoadBalancer' -l name=amq-broker,all=striot
+  # kubectl expose deployment amq-broker --port=61616 --target-port=61616 --name=amq-default -l name=amq-broker,all=striot
+  # kubectl expose deployment amq-broker --port=61613 --target-port=61613 --name=amq-stomp -l name=amq-broker,all=striot
 }
 
 
@@ -71,9 +74,9 @@ start() {
     replicas=1
   fi
 
-  kubectl scale deployment amq-broker --replicas=1
-  pod_count=1
-  pods_running $pod_count
+  # kubectl scale deployment amq-broker --replicas=1
+  pod_count=0
+  # pods_running $pod_count
   # minikube service amq-web --url
   # kubectl run haskell-server -it --image=$PREFIX/haskell-server:latest --port=9001 --image-pull-policy='Always' --attach=False --expose -l name=haskell-server,all-flag=striot
   log "haskell-server"
@@ -81,20 +84,20 @@ start() {
   ((pod_count++))
   pods_running $pod_count
 
-  log "haskell-gen-broker"
-  kubectl scale deployment haskell-gen-broker --replicas=1
-  ((pod_count++))
-  pods_running $pod_count
+  # log "haskell-gen-broker"
+  # kubectl scale deployment haskell-gen-broker --replicas=1
+  # ((pod_count++))
+  # pods_running $pod_count
 
   log "haskell-client2 (replicas:$replicas)"
   kubectl scale deployment haskell-client2 --replicas=$replicas
   ((pod_count+=$replicas))
   pods_running $pod_count
 
-  log "haskell-client"
-  kubectl scale deployment haskell-generator --replicas=1
-  ((pod_count++))
-  pods_running $pod_count
+  # log "haskell-client"
+  # kubectl scale deployment haskell-generator --replicas=1
+  # ((pod_count++))
+  # pods_running $pod_count
 
   # declare -a names=()
   # for dir in "${dirs[@]:2}"
@@ -175,13 +178,15 @@ clean() {
   do
     n=haskell-$dir
     names+=($n)
-    helm delete --purge $n
+    if [[ -n $(helm list -q $n) ]]; then
+      helm delete --purge $n
+    fi
     # if [[ -n $(docker images -q $PREFIX/$n) ]]; then
     #   log $PREFIX/$n
     #   docker rmi -f $PREFIX/$n
     # fi
   done
-  kubectl delete deployments,pods,services -l all=striot --now
+  # kubectl delete deployments,pods,services -l all=striot --now
 }
 
 
