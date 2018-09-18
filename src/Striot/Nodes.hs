@@ -16,6 +16,7 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Concurrent.Chan.Unagi as U
 import           Control.Monad              (forever, when)
+import           Control.Exception
 import           Data.Aeson
 import qualified Data.ByteString                 as B
 import qualified Data.ByteString.Char8           as BC (putStrLn)
@@ -363,27 +364,34 @@ runMqtt podName topics host port = do
                     , MQTT.cUsername = Just "admin"
                     , MQTT.cPassword = Just "yy^U#Fca!52Y"
                     , MQTT.cClientID = podName
-                    , MQTT.cKeepAlive = Just 10}
+                    , MQTT.cKeepAlive = Just 64000
+                    , MQTT.cClean = True}
 
-    -- Attempt to subscribe to individual topics
-    _ <- forkIO $ do
-        putStrLn "Subscribe to topics"
-        qosGranted <- MQTT.subscribe conf $ map (\x -> (x, MQTT.NoConfirm)) topics
-        let isHs x =
-                case x of
-                    MQTT.NoConfirm -> True
-                    _              -> False
-        if length (filter isHs qosGranted) == length topics
-            then putStrLn "Topic Handshake Success!"
-            else do
-                hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
-                exitFailure
+    let run c = do
+            -- Attempt to subscribe to individual topics
+            _ <- forkIO $ do
+                putStrLn "Subscribe to topics"
+                qosGranted <- MQTT.subscribe conf $ map (\x -> (x, MQTT.NoConfirm)) topics
+                let isHs x =
+                        case x of
+                            MQTT.NoConfirm -> True
+                            _              -> False
+                if length (filter isHs qosGranted) == length topics
+                    then putStrLn "Topic Handshake Success!"
+                    else do
+                        hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
+                        exitFailure
 
+            putStrLn "Run MQTT client"
+            terminated <- MQTT.run c
+            print terminated
+            putStrLn "Restarting..."
+        loopRun x = forever $
+            catch (run x) (\e -> do let err = show (e :: IOError)
+                                    hPutStr stderr $ "MQTT failed with message: " ++ err ++ "\n"
+                                    return ())
     -- -- this will throw IOExceptions
-    _ <- forkIO $ do
-        putStrLn "Run MQTT client"
-        terminated <- MQTT.run conf
-        print terminated
+    _ <- forkIO $ loopRun conf
     threadDelay 1000000         -- sleep 1 second
     return (conf, pubChan)
 
