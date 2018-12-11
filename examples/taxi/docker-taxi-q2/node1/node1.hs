@@ -9,13 +9,12 @@ import TaxiUtil
 
 
 streamFn :: Stream String -> Stream [Map.Map Cell Dollars]
-streamFn xs =
-    let parsedStream    = map tripParse xs
-        processedStream = streamFilter (\(_, j) -> inRangeQ2 (start j) && inRangeQ2 (end j))
-                        $ streamMap (\t -> (t, tripToJourney t)) parsedStream
-    in  streamWindow (slidingTime 1800000)
-      $ streamJoinW (slidingTime 900000) (slidingTime 1800000) (\a b -> profitability (emptyTaxisPerCell b) (cellProfit a)) processedStream processedStream
-
+streamFn xs = streamWindow (slidingTime 1800000)
+            $ streamJoinW (slidingTime 900000) (slidingTime 1800000)
+                          (\a b -> profitability (emptyTaxisPerCell b) (cellProfit a)) processedStream processedStream
+                where processedStream = streamFilter (\(_, j) -> inRangeQ2 (start j) && inRangeQ2 (end j))
+                                      $ streamMap (\t -> (t, tripToJourney t))
+                                      $ map tripParse xs
 
 
 main :: IO ()
