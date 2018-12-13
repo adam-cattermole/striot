@@ -1,3 +1,8 @@
+<<<<<<< HEAD
+=======
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+>>>>>>> Merge pull request #37 from adam-cattermole/move-to-8.4
 module Striot.Nodes ( nodeSink
                     , nodeSink2
                     , nodeLink
@@ -113,7 +118,7 @@ nodeSource pay streamGraph host port = do
 --- LINK FUNCTIONS - AcitveMQ ---
 
 
-nodeLinkAmq :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLinkAmq :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
 nodeLinkAmq streamGraph hostNameInput portNumInput hostNameOutput portNumOutput = withSocketsDo $ do
     -- sockIn <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting link ..."
@@ -121,14 +126,14 @@ nodeLinkAmq streamGraph hostNameInput portNumInput hostNameOutput portNumOutput 
     nodeLinkAmq' hostNameInput portNumInput streamGraph hostNameOutput portNumOutput
 
 
-nodeLinkAmq' :: (FromJSON (Event alpha), ToJSON (Event beta)) => HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeLinkAmq' :: (FromJSON alpha, ToJSON beta) => HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeLinkAmq' hostNameInput portNumInput streamOps host port = do
     stream <- processSocketAmq hostNameInput portNumInput
     let result = streamOps stream
     sendStream result host port
 
 
-nodeLinkAmqMqtt :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLinkAmqMqtt :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
 nodeLinkAmqMqtt streamGraph podNameInput hostNameInput portNumInput hostNameOutput portNumOutput = withSocketsDo $ do
     -- sockIn <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting link ..."
@@ -136,7 +141,7 @@ nodeLinkAmqMqtt streamGraph podNameInput hostNameInput portNumInput hostNameOutp
     nodeLinkAmqMqtt' podNameInput hostNameInput portNumInput streamGraph hostNameOutput portNumOutput
 
 
-nodeLinkAmqMqtt' :: (FromJSON (Event alpha), ToJSON (Event beta)) => String -> HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeLinkAmqMqtt' :: (FromJSON alpha, ToJSON beta) => String -> HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeLinkAmqMqtt' podNameInput hostNameInput portNumInput streamOps host port = do
     stream <- processSocketAmqMqtt podNameInput hostNameInput portNumInput
     let result = streamOps stream
@@ -146,7 +151,7 @@ nodeLinkAmqMqtt' podNameInput hostNameInput portNumInput streamOps host port = d
 --- SOURCE FUNCTIONS - ActiveMQ ---
 
 
-nodeSourceAmq :: ToJSON (Event beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeSourceAmq :: ToJSON beta => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeSourceAmq pay streamGraph host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
@@ -288,18 +293,18 @@ hPutLines' handle (x:xs) = do
 --- UTILITY FUNCTIONS - ActiveMQ ---
 
 
-processSocketAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (Stream alpha)
+processSocketAmq :: FromJSON alpha => HostName -> ServiceName -> IO (Stream alpha)
 processSocketAmq host port = acceptConnectionsAmq host port >>= readEventsTChan
 
 
-acceptConnectionsAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (U.OutChan (Event alpha))
+acceptConnectionsAmq :: FromJSON alpha => HostName -> ServiceName -> IO (U.OutChan (Event alpha))
 acceptConnectionsAmq host port = do
     (inChan, outChan) <- U.newChan
     _         <- forkIO $ connectionHandlerAmq host port inChan
     return outChan
 
 
-connectionHandlerAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
+connectionHandlerAmq :: FromJSON alpha => HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
 connectionHandlerAmq host port eventChan = do
     let opts = brokerOpts
     withConnection host (read port) opts [] $ \c -> do
@@ -307,7 +312,7 @@ connectionHandlerAmq host port eventChan = do
         retrieveMessages q >>= U.writeList2Chan eventChan
 
 
-sendStreamAmq :: ToJSON (Event alpha) => Stream alpha -> HostName -> ServiceName -> IO ()
+sendStreamAmq :: ToJSON alpha => Stream alpha -> HostName -> ServiceName -> IO ()
 sendStreamAmq []     _    _    = return ()
 sendStreamAmq stream host port = do
     let opts = brokerOpts
@@ -317,11 +322,11 @@ sendStreamAmq stream host port = do
 
 
 --- CONVERTERS ---
-iconv :: FromJSON (Event alpha) => InBound (Maybe (Event alpha))
+iconv :: FromJSON alpha => InBound (Maybe (Event alpha))
 iconv = let iconv _ _ _ = return . decodeStrict
         in  iconv
 
-oconv :: ToJSON (Event alpha) => OutBound (Event alpha)
+oconv :: ToJSON alpha => OutBound (Event alpha)
 oconv = return . BLC.toStrict . encode
 
 
@@ -333,14 +338,14 @@ brokerOpts = let h = (0, 2000)
                  , OAuth user pass]
 
 
-publishMessages :: (ToJSON (Event alpha)) => Writer (Event alpha) -> Stream alpha -> IO ()
+publishMessages :: (ToJSON alpha) => Writer (Event alpha) -> Stream alpha -> IO ()
 publishMessages _ []     = return ()
 publishMessages q (x:xs) = do
     writeQ q M.nullType [] x
     publishMessages q xs
 
 
-retrieveMessages :: (FromJSON (Event alpha)) => Reader (Maybe (Event alpha)) -> IO (Stream alpha)
+retrieveMessages :: (FromJSON alpha) => Reader (Maybe (Event alpha)) -> IO (Stream alpha)
 retrieveMessages q = unsafeInterleaveIO $ do
     x <- msgContent <$> readQ q
     let x2 = maybeToList x
@@ -392,23 +397,23 @@ runMqtt podName topics host port = do
     return (conf, pubChan)
 
 
-processSocketAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> IO (Stream alpha)
+processSocketAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> IO (Stream alpha)
 processSocketAmqMqtt podName host port = acceptConnectionsAmqMqtt podName host port >>= readEventsTChan
 
-acceptConnectionsAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> IO (U.OutChan (Event alpha))
+acceptConnectionsAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> IO (U.OutChan (Event alpha))
 acceptConnectionsAmqMqtt podName host port = do
     (inChan, outChan) <- U.newChan
     _         <- forkIO $ connectionHandlerAmqMqtt podName host port inChan
     return outChan
 
 
-connectionHandlerAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
+connectionHandlerAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
 connectionHandlerAmqMqtt podName host port eventChan = do
     (conf, messageChan) <- runMqtt (T.pack podName) mqttTopics host (read port)
     retrieveMessagesMqtt messageChan >>= U.writeList2Chan eventChan
 
 
-retrieveMessagesMqtt :: (FromJSON (Event alpha)) => TChan (MQTT.Message 'MQTT.PUBLISH) -> IO (Stream alpha)
+retrieveMessagesMqtt :: (FromJSON alpha) => TChan (MQTT.Message 'MQTT.PUBLISH) -> IO (Stream alpha)
 retrieveMessagesMqtt messageChan = unsafeInterleaveIO $ do
     x <- decodeStrict . MQTT.payload . MQTT.body <$> atomically (readTChan messageChan)
     -- let x2 = case x of
