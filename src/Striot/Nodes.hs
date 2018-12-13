@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Striot.Nodes ( nodeSink
@@ -35,7 +34,7 @@ import           System.Exit                (exitFailure)
 
 --- SINK FUNCTIONS ---
 
-nodeSink :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> ServiceName -> IO ()
+nodeSink :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> ServiceName -> IO ()
 nodeSink streamGraph iofn portNumInput1 = withSocketsDo $ do
     sock <- listenSocket portNumInput1
     putStrLn "Starting server ..."
@@ -43,7 +42,7 @@ nodeSink streamGraph iofn portNumInput1 = withSocketsDo $ do
     nodeSink' sock streamGraph iofn
 
 
-nodeSink' :: (FromJSON (Event alpha), ToJSON (Event beta)) => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
+nodeSink' :: (FromJSON alpha, ToJSON beta) => Socket -> (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> IO ()
 nodeSink' sock streamOps iofn = do
     stream <- processSocket sock
     let result = streamOps stream
@@ -51,7 +50,7 @@ nodeSink' sock streamOps iofn = do
 
 
 -- A Sink with 2 inputs
-nodeSink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> ServiceName -> ServiceName -> IO ()
+nodeSink2 :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> ServiceName -> ServiceName -> IO ()
 nodeSink2 streamGraph iofn portNumInput1 portNumInput2= withSocketsDo $ do
     sock1 <- listenSocket portNumInput1
     sock2 <- listenSocket portNumInput2
@@ -60,7 +59,7 @@ nodeSink2 streamGraph iofn portNumInput1 portNumInput2= withSocketsDo $ do
     nodeSink2' sock1 sock2 streamGraph iofn
 
 
-nodeSink2' :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> IO ()
+nodeSink2' :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> IO ()
 nodeSink2' sock1 sock2 streamOps iofn = do
     stream1 <- processSocket sock1
     stream2 <- processSocket sock2
@@ -70,7 +69,7 @@ nodeSink2' sock1 sock2 streamOps iofn = do
 
 --- LINK FUNCTIONS ---
 
-nodeLink :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLink :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> ServiceName -> HostName -> ServiceName -> IO ()
 nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo $ do
     sockIn <- listenSocket portNumInput1
     putStrLn "Starting link ..."
@@ -78,7 +77,7 @@ nodeLink streamGraph portNumInput1 hostNameOutput portNumOutput = withSocketsDo 
     nodeLink' sockIn streamGraph hostNameOutput portNumOutput
 
 
-nodeLink' :: (FromJSON (Event alpha), ToJSON (Event beta)) => Socket -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeLink' :: (FromJSON alpha, ToJSON beta) => Socket -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeLink' sock streamOps host port = do
     stream <- processSocket sock
     let result = streamOps stream
@@ -86,7 +85,7 @@ nodeLink' sock streamOps host port = do
 
 
 -- A Link with 2 inputs
-nodeLink2 :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => (Stream alpha -> Stream beta -> Stream gamma) -> ServiceName -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLink2 :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> ServiceName -> ServiceName -> HostName -> ServiceName -> IO ()
 nodeLink2 streamGraph portNumInput1 portNumInput2 hostName portNumOutput = withSocketsDo $ do
     sock1 <- listenSocket portNumInput1
     sock2 <- listenSocket portNumInput2
@@ -95,7 +94,7 @@ nodeLink2 streamGraph portNumInput1 portNumInput2 hostName portNumOutput = withS
     nodeLink2' sock1 sock2 streamGraph hostName portNumOutput
 
 
-nodeLink2' :: (FromJSON (Event alpha), FromJSON (Event beta), ToJSON (Event gamma)) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> ServiceName -> IO ()
+nodeLink2' :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => Socket -> Socket -> (Stream alpha -> Stream beta -> Stream gamma) -> HostName -> ServiceName -> IO ()
 nodeLink2' sock1 sock2 streamOps host port = do
     stream1 <- processSocket sock1
     stream2 <- processSocket sock2
@@ -105,7 +104,7 @@ nodeLink2' sock1 sock2 streamOps host port = do
 
 --- SOURCE FUNCTIONS ---
 
-nodeSource :: ToJSON (Event beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeSource :: ToJSON beta => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeSource pay streamGraph host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
@@ -116,7 +115,7 @@ nodeSource pay streamGraph host port = do
 --- LINK FUNCTIONS - AcitveMQ ---
 
 
-nodeLinkAmq :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLinkAmq :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
 nodeLinkAmq streamGraph hostNameInput portNumInput hostNameOutput portNumOutput = withSocketsDo $ do
     -- sockIn <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting link ..."
@@ -124,14 +123,14 @@ nodeLinkAmq streamGraph hostNameInput portNumInput hostNameOutput portNumOutput 
     nodeLinkAmq' hostNameInput portNumInput streamGraph hostNameOutput portNumOutput
 
 
-nodeLinkAmq' :: (FromJSON (Event alpha), ToJSON (Event beta)) => HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeLinkAmq' :: (FromJSON alpha, ToJSON beta) => HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeLinkAmq' hostNameInput portNumInput streamOps host port = do
     stream <- processSocketAmq hostNameInput portNumInput
     let result = streamOps stream
     sendStream result host port
 
 
-nodeLinkAmqMqtt :: (FromJSON (Event alpha), ToJSON (Event beta)) => (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLinkAmqMqtt :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
 nodeLinkAmqMqtt streamGraph podNameInput hostNameInput portNumInput hostNameOutput portNumOutput = withSocketsDo $ do
     -- sockIn <- listenOn $ PortNumber portNumInput1
     putStrLn "Starting link ..."
@@ -139,7 +138,7 @@ nodeLinkAmqMqtt streamGraph podNameInput hostNameInput portNumInput hostNameOutp
     nodeLinkAmqMqtt' podNameInput hostNameInput portNumInput streamGraph hostNameOutput portNumOutput
 
 
-nodeLinkAmqMqtt' :: (FromJSON (Event alpha), ToJSON (Event beta)) => String -> HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeLinkAmqMqtt' :: (FromJSON alpha, ToJSON beta) => String -> HostName -> ServiceName -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeLinkAmqMqtt' podNameInput hostNameInput portNumInput streamOps host port = do
     stream <- processSocketAmqMqtt podNameInput hostNameInput portNumInput
     let result = streamOps stream
@@ -149,7 +148,7 @@ nodeLinkAmqMqtt' podNameInput hostNameInput portNumInput streamOps host port = d
 --- SOURCE FUNCTIONS - ActiveMQ ---
 
 
-nodeSourceAmq :: ToJSON (Event beta) => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeSourceAmq :: ToJSON beta => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeSourceAmq pay streamGraph host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
@@ -177,14 +176,14 @@ readListFromSource = go 0
 {- processSocket is a wrapper function that handles concurrently
 accepting and handling connections on the socket and reading all of the strings
 into an event Stream -}
-processSocket :: FromJSON (Event alpha) => Socket -> IO (Stream alpha)
+processSocket :: FromJSON alpha => Socket -> IO (Stream alpha)
 processSocket sock = acceptConnections sock >>= readEventsTChan
 
 
 {- acceptConnections takes a socket as an argument and spins up a new thread to
 process the data received. The returned TChan object contains the data from
 the socket -}
-acceptConnections :: FromJSON (Event alpha) => Socket -> IO (U.OutChan (Event alpha))
+acceptConnections :: FromJSON alpha => Socket -> IO (U.OutChan (Event alpha))
 acceptConnections sock = do
     (inChan, outChan) <- U.newChan
     _         <- forkIO $ connectionHandler sock inChan
@@ -195,7 +194,7 @@ acceptConnections sock = do
 accepted, it is converted to a handle and a new thread is forked to handle all
 reading. The function then loops to accept a new connection. forkFinally is used
 to ensure the thread closes the handle before it exits -}
-connectionHandler :: FromJSON (Event alpha) => Socket -> U.InChan (Event alpha) -> IO ()
+connectionHandler :: FromJSON alpha => Socket -> U.InChan (Event alpha) -> IO ()
 connectionHandler sockIn eventChan = forever $ do
     -- putStrLn "Awaiting new connection"
     (sock, _) <- accept sockIn
@@ -207,7 +206,7 @@ connectionHandler sockIn eventChan = forever $ do
 {- processHandle takes a Handle and TChan. All of the events are read through
 hGetLines' with the IO deferred lazily. The string list is mapped to a Stream
 and passed to writeEventsTChan -}
-processHandle :: FromJSON (Event alpha) => Handle -> U.InChan (Event alpha) -> IO ()
+processHandle :: FromJSON alpha => Handle -> U.InChan (Event alpha) -> IO ()
 processHandle handle eventChan = do
     byteStream <- hGetLines' handle
     let eventStream = mapMaybe decodeStrict byteStream
@@ -216,13 +215,13 @@ processHandle handle eventChan = do
 
 {- writeEventsTChan takes a TChan and Stream of the same type, and recursively
 writes the events atomically to the TChan, until an empty list -}
-writeEventsTChan :: FromJSON (Event alpha) => U.InChan (Event alpha) -> Stream alpha -> IO ()
+writeEventsTChan :: FromJSON alpha => U.InChan (Event alpha) -> Stream alpha -> IO ()
 writeEventsTChan eventChan = mapM_ (U.writeChan eventChan)
 
 {- readEventsTChan creates a stream of events from reading the next element from
 a TChan, but the IO is deferred lazily. Only when the next value of the Stream
 is evaluated does the IO computation take place -}
-readEventsTChan :: FromJSON (Event alpha) => U.OutChan (Event alpha) -> IO (Stream alpha)
+readEventsTChan :: FromJSON alpha => U.OutChan (Event alpha) -> IO (Stream alpha)
 readEventsTChan eventChan = System.IO.Unsafe.unsafeInterleaveIO $ do
     x <- U.readChan eventChan
     xs <- readEventsTChan eventChan
@@ -244,14 +243,14 @@ readListFromSocket' sockIn = do
     return (hdl, stream)
 
 
-readEventStreamFromSocket :: FromJSON (Event alpha) => Socket -> IO (Handle, Stream alpha)
+readEventStreamFromSocket :: FromJSON alpha => Socket -> IO (Handle, Stream alpha)
 readEventStreamFromSocket sock = do
     (hdl, byteStream) <- readListFromSocket' sock
     let eventStream = mapMaybe decodeStrict byteStream
     return (hdl, eventStream)
 
 
-sendStream :: ToJSON (Event alpha) => Stream alpha -> HostName -> ServiceName -> IO ()
+sendStream :: ToJSON alpha => Stream alpha -> HostName -> ServiceName -> IO ()
 sendStream []     _    _    = return ()
 sendStream stream host port = withSocketsDo $ do
     sock <- connectSocket host port
@@ -275,7 +274,7 @@ hGetLines' handle = System.IO.Unsafe.unsafeInterleaveIO $ do
         else return []
 
 
-hPutLines' :: ToJSON (Event alpha) => Handle -> Stream alpha -> IO ()
+hPutLines' :: ToJSON alpha => Handle -> Stream alpha -> IO ()
 hPutLines' handle [] = do
     hClose handle
     -- putStrLn "Closed output handle"
@@ -292,18 +291,18 @@ hPutLines' handle (x:xs) = do
 --- UTILITY FUNCTIONS - ActiveMQ ---
 
 
-processSocketAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (Stream alpha)
+processSocketAmq :: FromJSON alpha => HostName -> ServiceName -> IO (Stream alpha)
 processSocketAmq host port = acceptConnectionsAmq host port >>= readEventsTChan
 
 
-acceptConnectionsAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> IO (U.OutChan (Event alpha))
+acceptConnectionsAmq :: FromJSON alpha => HostName -> ServiceName -> IO (U.OutChan (Event alpha))
 acceptConnectionsAmq host port = do
     (inChan, outChan) <- U.newChan
     _         <- forkIO $ connectionHandlerAmq host port inChan
     return outChan
 
 
-connectionHandlerAmq :: FromJSON (Event alpha) => HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
+connectionHandlerAmq :: FromJSON alpha => HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
 connectionHandlerAmq host port eventChan = do
     let opts = brokerOpts
     withConnection host (read port) opts [] $ \c -> do
@@ -311,7 +310,7 @@ connectionHandlerAmq host port eventChan = do
         retrieveMessages q >>= U.writeList2Chan eventChan
 
 
-sendStreamAmq :: ToJSON (Event alpha) => Stream alpha -> HostName -> ServiceName -> IO ()
+sendStreamAmq :: ToJSON alpha => Stream alpha -> HostName -> ServiceName -> IO ()
 sendStreamAmq []     _    _    = return ()
 sendStreamAmq stream host port = do
     let opts = brokerOpts
@@ -321,11 +320,11 @@ sendStreamAmq stream host port = do
 
 
 --- CONVERTERS ---
-iconv :: FromJSON (Event alpha) => InBound (Maybe (Event alpha))
+iconv :: FromJSON alpha => InBound (Maybe (Event alpha))
 iconv = let iconv _ _ _ = return . decodeStrict
         in  iconv
 
-oconv :: ToJSON (Event alpha) => OutBound (Event alpha)
+oconv :: ToJSON alpha => OutBound (Event alpha)
 oconv = return . BLC.toStrict . encode
 
 
@@ -337,14 +336,14 @@ brokerOpts = let h = (0, 2000)
                  , OAuth user pass]
 
 
-publishMessages :: (ToJSON (Event alpha)) => Writer (Event alpha) -> Stream alpha -> IO ()
+publishMessages :: (ToJSON alpha) => Writer (Event alpha) -> Stream alpha -> IO ()
 publishMessages _ []     = return ()
 publishMessages q (x:xs) = do
     writeQ q M.nullType [] x
     publishMessages q xs
 
 
-retrieveMessages :: (FromJSON (Event alpha)) => Reader (Maybe (Event alpha)) -> IO (Stream alpha)
+retrieveMessages :: (FromJSON alpha) => Reader (Maybe (Event alpha)) -> IO (Stream alpha)
 retrieveMessages q = unsafeInterleaveIO $ do
     x <- msgContent <$> readQ q
     let x2 = maybeToList x
@@ -396,23 +395,23 @@ runMqtt podName topics host port = do
     return (conf, pubChan)
 
 
-processSocketAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> IO (Stream alpha)
+processSocketAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> IO (Stream alpha)
 processSocketAmqMqtt podName host port = acceptConnectionsAmqMqtt podName host port >>= readEventsTChan
 
-acceptConnectionsAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> IO (U.OutChan (Event alpha))
+acceptConnectionsAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> IO (U.OutChan (Event alpha))
 acceptConnectionsAmqMqtt podName host port = do
     (inChan, outChan) <- U.newChan
     _         <- forkIO $ connectionHandlerAmqMqtt podName host port inChan
     return outChan
 
 
-connectionHandlerAmqMqtt :: FromJSON (Event alpha) => String -> HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
+connectionHandlerAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
 connectionHandlerAmqMqtt podName host port eventChan = do
     (conf, messageChan) <- runMqtt (T.pack podName) mqttTopics host (read port)
     retrieveMessagesMqtt messageChan >>= U.writeList2Chan eventChan
 
 
-retrieveMessagesMqtt :: (FromJSON (Event alpha)) => TChan (MQTT.Message 'MQTT.PUBLISH) -> IO (Stream alpha)
+retrieveMessagesMqtt :: (FromJSON alpha) => TChan (MQTT.Message 'MQTT.PUBLISH) -> IO (Stream alpha)
 retrieveMessagesMqtt messageChan = unsafeInterleaveIO $ do
     x <- decodeStrict . MQTT.payload . MQTT.body <$> atomically (readTChan messageChan)
     -- let x2 = case x of
