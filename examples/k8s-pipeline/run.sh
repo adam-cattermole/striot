@@ -195,7 +195,7 @@ help() {
   echo "-----------------------------------------------------------------------"
   echo "                      Available commands                              -"
   echo "-----------------------------------------------------------------------"
-  # echo -e -n "$BLUE"
+  echo "$BLUE"
   echo "   > install - Build, Start and Attach"
   echo "   > build - To build the Docker images"
   echo "   > start - To start the pipeline containers"
@@ -203,7 +203,7 @@ help() {
   echo "   > stop - To stop the pipeline containers"
   echo "   > clean - Remove the pipeline containers and all assets"
   echo "   > help - Display this help"
-  # echo -e -n "$NORMAL"
+  echo "$NORMAL"
   echo "-----------------------------------------------------------------------"
 }
 
