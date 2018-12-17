@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
 import System.IO
 import System.IO.Unsafe (unsafeInterleaveIO)
 import Data.List
@@ -76,7 +75,7 @@ mapTime (e@(E id t v):r) = unsafeInterleaveIO $ do
         return x { value = (v, now) }
 
 
-hPutLines'' :: ToJSON (Event alpha) => Handle -> Stream alpha -> IO ()
+hPutLines'' :: ToJSON alpha => Handle -> Stream alpha -> IO ()
 hPutLines'' handle (x:xs) = do
     writable <- hIsWritable handle
     when writable $ do
