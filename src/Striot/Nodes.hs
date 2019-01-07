@@ -354,17 +354,7 @@ retrieveMessages q = unsafeInterleaveIO $ do
 
 runMqtt :: T.Text -> [MQTT.Topic] -> HostName -> PortNumber -> IO (MQTT.Config, TChan (MQTT.Message 'MQTT.PUBLISH))
 runMqtt podName topics host port = do
-    pubChan <- newTChanIO
-    cmds <- MQTT.mkCommands
-    let conf = (MQTT.defaultConfig cmds pubChan)
-                    { MQTT.cHost = host
-                    , MQTT.cPort = port
-                    , MQTT.cUsername = Just "admin"
-                    , MQTT.cPassword = Just "yy^U#Fca!52Y"
-                    , MQTT.cClientID = podName
-                    , MQTT.cKeepAlive = Just 64000
-                    , MQTT.cClean = True}
-
+    (conf, pubChan) <- mqttConf podName host port
     let run c = do
             -- Attempt to subscribe to individual topics
             _ <- forkIO $ do
@@ -394,6 +384,21 @@ runMqtt podName topics host port = do
     return (conf, pubChan)
 
 
+mqttConf :: T.Text -> HostName -> PortNumber -> IO (MQTT.Config, TChan (MQTT.Message 'MQTT.PUBLISH))
+mqttConf podName host port = do
+    pubChan <- newTChanIO
+    cmds <- MQTT.mkCommands
+    let conf = (MQTT.defaultConfig cmds pubChan)
+                    { MQTT.cHost = host
+                    , MQTT.cPort = port
+                    , MQTT.cUsername = Just "admin"
+                    , MQTT.cPassword = Just "yy^U#Fca!52Y"
+                    , MQTT.cClientID = podName
+                    , MQTT.cKeepAlive = Just 64000
+                    , MQTT.cClean = True}
+    return (conf, pubChan)
+
+
 processSocketAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> IO (Stream alpha)
 processSocketAmqMqtt podName host port = acceptConnectionsAmqMqtt podName host port >>= readEventsTChan
 
@@ -413,27 +418,19 @@ connectionHandlerAmqMqtt podName host port eventChan = do
 retrieveMessagesMqtt :: (FromJSON alpha) => TChan (MQTT.Message 'MQTT.PUBLISH) -> IO (Stream alpha)
 retrieveMessagesMqtt messageChan = unsafeInterleaveIO $ do
     x <- decodeStrict . MQTT.payload . MQTT.body <$> atomically (readTChan messageChan)
-    -- let x2 = case x of
-    --         Just newe -> [newe]
-    --         Nothing -> []
     xs <- retrieveMessagesMqtt messageChan
     case x of
         Just newe -> return (newe:xs)
-        Nothing -> return xs
-    -- return (x2 ++ xs)
+        Nothing   -> return xs
 
+sendStreamAmqMqtt :: ToJSON alpha => String -> Stream alpha -> HostName -> ServiceName -> IO ()
+sendStreamAmqMqtt podName stream host port = do
+    (conf, messageChan) <- mqttConf (T.pack podName) host (read port)
+    mapM_ (\x -> MQTT.publish conf MQTT.NoConfirm False (mqttTopics !! 1) $ BLC.toStrict . encode $ x) stream
 
--- mqttHost :: HostName
--- mqttHost = "artemis-broker.eastus.cloudapp.azure.com"
-
--- mqttPort :: PortNumber
--- mqttPort = 1883
 
 mqttTopics :: [MQTT.Topic]
 mqttTopics = ["SampleQueue"]
-
--- mqttQoSLevel :: MQTT.QoS
--- mqttQoSLevel = MQTT.Handshake
 
 
 --- SOCKETS ---

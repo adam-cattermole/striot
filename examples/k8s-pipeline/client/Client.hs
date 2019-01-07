@@ -12,7 +12,10 @@ main :: IO ()
 main = do
    hostName <- getEnv "AMQ_BROKER_SERVICE_HOST"
    threadDelay (1 * 1000 * 1000)
-   nodeSourceAmq src1 streamGraph2 hostName portNum -- processes source before sending it to another node
+   nodeSourceAmq src1 streamGraphid hostName portNum -- processes source before sending it to another node
+
+streamGraphid :: Stream String -> Stream String
+streamGraphid = streamMap Prelude.id
 
 streamGraph2 :: Stream String -> Stream String
 streamGraph2 s = streamMap (\st-> st++st) s

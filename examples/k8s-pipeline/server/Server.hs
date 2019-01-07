@@ -17,7 +17,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 
 listenPort = "9001" :: ServiceName
-fileName = "sw-log.txt"
+fileName = "output-log.txt"
 
 
 main :: IO ()
@@ -28,11 +28,10 @@ main = do
     hSetBuffering hdl NoBuffering
     _ <- forkFinally (writeToFile hdl chan) (\_ -> hClose hdl)
     nodeSink streamGraphid (sinkToChan chan) listenPort
-    -- nodeSink streamGraphid printStream listenPort
 
 
 streamGraphid :: Stream T.Text -> Stream T.Text
-streamGraphid = streamMap (\x -> Prelude.id x)
+streamGraphid = streamMap Prelude.id
 
 
 sinkToChan :: (ToJSON alpha) => TChan (Event (alpha, UTCTime)) -> Stream alpha -> IO ()
@@ -54,14 +53,6 @@ readEventsTChan eventChan = System.IO.Unsafe.unsafeInterleaveIO $ do
     x <- atomically $ readTChan eventChan
     xs <- readEventsTChan eventChan
     return (x : xs)
-
-
--- printStreamDelay :: (ToJSON alpha, Show alpha) => Stream alpha -> IO ()
--- printStreamDelay stream = do
---     hdl <- openFile fileName WriteMode
---     hSetBuffering hdl NoBuffering
---     output <- mapTime stream
---     hPutLines'' hdl output
 
 
 mapTime :: Stream alpha -> IO (Stream (alpha, UTCTime))
