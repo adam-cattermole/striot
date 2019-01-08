@@ -6,6 +6,7 @@ module Striot.Nodes ( nodeSink
                     , nodeLink2
                     , nodeSource
                     , nodeSourceAmq
+                    , nodeSourceAmqMqtt
                     , nodeLinkAmq
                     , nodeLinkAmqMqtt
                     ) where
@@ -154,6 +155,13 @@ nodeSourceAmq pay streamGraph host port = do
     stream <- readListFromSource pay
     let result = streamGraph stream
     sendStreamAmq result host port
+
+nodeSourceAmqMqtt :: ToJSON beta => IO alpha -> (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> IO ()
+nodeSourceAmqMqtt pay streamGraph podName host port = do
+    putStrLn "Starting source ..."
+    stream <- readListFromSource pay
+    let result = streamGraph stream
+    sendStreamAmqMqtt podName result host port
 
 
 --- UTILITY FUNCTIONS ---
@@ -351,25 +359,25 @@ retrieveMessages q = unsafeInterleaveIO $ do
 
 
 --- AMQ MQTT ---
-
-runMqtt :: T.Text -> [MQTT.Topic] -> HostName -> PortNumber -> IO (MQTT.Config, TChan (MQTT.Message 'MQTT.PUBLISH))
-runMqtt podName topics host port = do
+runMqttSub :: T.Text -> [MQTT.Topic] -> HostName -> PortNumber -> IO (MQTT.Config, TChan (MQTT.Message 'MQTT.PUBLISH))
+runMqttSub podName topics host port = do
     (conf, pubChan) <- mqttConf podName host port
-    let run c = do
-            -- Attempt to subscribe to individual topics
-            _ <- forkIO $ do
-                putStrLn "Subscribe to topics"
-                qosGranted <- MQTT.subscribe conf $ map (\x -> (x, MQTT.NoConfirm)) topics
-                let isHs x =
-                        case x of
-                            MQTT.NoConfirm -> True
-                            _              -> False
-                if length (filter isHs qosGranted) == length topics
-                    then putStrLn "Topic Handshake Success!"
-                    else do
-                        hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
-                        exitFailure
+    runMqtt' (mqttSub conf pubChan topics) conf
+    return (conf, pubChan)
 
+
+runMqttPub :: T.Text -> [MQTT.Topic] -> HostName -> PortNumber -> IO (MQTT.Config, TChan (MQTT.Message 'MQTT.PUBLISH))
+runMqttPub podName topics host port = do
+    (conf, pubChan) <- mqttConf podName host port
+    runMqtt' (return ()) conf
+    return (conf, pubChan)
+
+
+runMqtt' :: IO () -> MQTT.Config -> IO ()
+runMqtt' op conf = do
+    let run c = do
+            -- Call IO () function passed in (could be subscribe operation or do nothing for publish)
+            op
             putStrLn "Run MQTT client"
             terminated <- MQTT.run c
             print terminated
@@ -381,7 +389,6 @@ runMqtt podName topics host port = do
     -- -- this will throw IOExceptions
     _ <- forkIO $ loopRun conf
     threadDelay 1000000         -- sleep 1 second
-    return (conf, pubChan)
 
 
 mqttConf :: T.Text -> HostName -> PortNumber -> IO (MQTT.Config, TChan (MQTT.Message 'MQTT.PUBLISH))
@@ -399,6 +406,23 @@ mqttConf podName host port = do
     return (conf, pubChan)
 
 
+mqttSub :: MQTT.Config -> TChan (MQTT.Message 'MQTT.PUBLISH) -> [MQTT.Topic] -> IO ()
+mqttSub conf pubChan topics = do
+    _ <- forkIO $ do
+        putStrLn "Subscribe to topics"
+        qosGranted <- MQTT.subscribe conf $ map (\x -> (x, MQTT.NoConfirm)) topics
+        let isHs x =
+                case x of
+                    MQTT.NoConfirm -> True
+                    _              -> False
+        if length (filter isHs qosGranted) == length topics
+            then putStrLn "Topic Handshake Success!"
+            else do
+                hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
+                exitFailure
+    return ()
+
+
 processSocketAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> IO (Stream alpha)
 processSocketAmqMqtt podName host port = acceptConnectionsAmqMqtt podName host port >>= readEventsTChan
 
@@ -411,7 +435,7 @@ acceptConnectionsAmqMqtt podName host port = do
 
 connectionHandlerAmqMqtt :: FromJSON alpha => String -> HostName -> ServiceName -> U.InChan (Event alpha) -> IO ()
 connectionHandlerAmqMqtt podName host port eventChan = do
-    (conf, messageChan) <- runMqtt (T.pack podName) mqttTopics host (read port)
+    (conf, messageChan) <- runMqttSub (T.pack podName) mqttTopics host (read port)
     retrieveMessagesMqtt messageChan >>= U.writeList2Chan eventChan
 
 
@@ -425,8 +449,9 @@ retrieveMessagesMqtt messageChan = unsafeInterleaveIO $ do
 
 sendStreamAmqMqtt :: ToJSON alpha => String -> Stream alpha -> HostName -> ServiceName -> IO ()
 sendStreamAmqMqtt podName stream host port = do
-    (conf, messageChan) <- mqttConf (T.pack podName) host (read port)
-    mapM_ (\x -> MQTT.publish conf MQTT.NoConfirm False (mqttTopics !! 1) $ BLC.toStrict . encode $ x) stream
+    (conf, messageChan) <- runMqttPub (T.pack podName) mqttTopics host (read port)
+    -- mapM_  (print . encode) stream
+    mapM_ (\x -> MQTT.publish conf MQTT.NoConfirm True (head mqttTopics) $ BLC.toStrict . encode $ x) stream
 
 
 mqttTopics :: [MQTT.Topic]

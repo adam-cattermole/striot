@@ -30,7 +30,7 @@ main = do
     nodeSink streamGraphid (sinkToChan chan) listenPort
 
 
-streamGraphid :: Stream T.Text -> Stream T.Text
+streamGraphid :: Stream String -> Stream String
 streamGraphid = streamMap Prelude.id
 
 
@@ -56,14 +56,14 @@ readEventsTChan eventChan = System.IO.Unsafe.unsafeInterleaveIO $ do
 
 
 mapTime :: Stream alpha -> IO (Stream (alpha, UTCTime))
-mapTime (e@(E id t v):r) = unsafeInterleaveIO $ do
+mapTime (e@(Event eid t (Just v)):r) = unsafeInterleaveIO $ do
     x <- msg e v
     xs <- mapTime r
     return (x:xs)
   where
     msg x v = do
         now <- getCurrentTime
-        return x { value = (v, now) }
+        return x { value = Just (v, now) }
 
 
 hPutLines'' :: ToJSON alpha => Handle -> Stream alpha -> IO ()
