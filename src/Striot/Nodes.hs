@@ -313,7 +313,7 @@ connectionHandlerAmq :: FromJSON alpha => HostName -> ServiceName -> U.InChan (E
 connectionHandlerAmq host port eventChan = do
     let opts = brokerOpts
     withConnection host (read port) opts [] $ \c -> do
-        q <- newReader c "SampleQueue" "SampleQueue" [] [] iconv
+        q <- newReader c "StriotQueue" "StriotQueue" [] [] iconv
         retrieveMessages q >>= U.writeList2Chan eventChan
 
 
@@ -322,7 +322,7 @@ sendStreamAmq []     _    _    = return ()
 sendStreamAmq stream host port = do
     let opts = brokerOpts
     withConnection host (read port) opts [] $ \c -> do
-        q <- newWriter c "SampleQueue" "SampleQueue" [ONoContentLen] [] oconv
+        q <- newWriter c "StriotQueue" "StriotQueue" [ONoContentLen] [] oconv
         publishMessages q stream
 
 
@@ -455,7 +455,7 @@ sendStreamAmqMqtt podName stream host port = do
 
 
 mqttTopics :: [MQTT.Topic]
-mqttTopics = ["SampleQueue"]
+mqttTopics = ["StriotQueue"]
 
 
 --- SOCKETS ---
