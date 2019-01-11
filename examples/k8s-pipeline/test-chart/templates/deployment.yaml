@@ -30,6 +30,8 @@ spec:
           env:
             - name: "AMQ_BROKER_SERVICE_HOST"
               value: {{ .Values.amqBroker.host }}
+            - name: "HASKELL_SERVER_SERVICE_HOST"
+              value: {{ .Values.sink.host }}
           # livenessProbe:
           #   httpGet:
           #     path: /

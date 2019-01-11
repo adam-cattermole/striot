@@ -1,10 +1,13 @@
 import System.IO
 import System.IO.Unsafe (unsafeInterleaveIO)
 import Data.List
+import Data.List.Split
+import Data.Maybe
 
 import Striot.FunctionalProcessing
 import Striot.FunctionalIoTtypes
 import Striot.Nodes
+import Taxi
 import Network.Socket (ServiceName)
 
 import Data.Time (getCurrentTime)
@@ -15,6 +18,7 @@ import qualified Data.Text as T
 import Control.Monad (when)
 import Control.Concurrent
 import Control.Concurrent.STM
+
 
 listenPort = "9001" :: ServiceName
 fileName = "output-log.txt"
@@ -30,8 +34,14 @@ main = do
     nodeSink streamGraphid (sinkToChan chan) listenPort
 
 
-streamGraphid :: Stream String -> Stream String
+streamGraphid :: Stream ((UTCTime,UTCTime),[(Journey,Int)]) -> Stream ((UTCTime,UTCTime),[(Journey,Int)])
 streamGraphid = streamMap Prelude.id
+
+
+streamGraphFn :: Stream ((UTCTime,UTCTime),[(Journey,Int)]) -> Stream ((UTCTime,UTCTime),[(Journey,Int)])
+streamGraphFn n1 = let
+    n2 = (\s -> streamFilterAcc (\acc h -> if snd h == snd acc then acc else h) (fromJust (value (head s))) (\h acc -> snd h /= snd acc) (tail s)) n1
+    in n2
 
 
 sinkToChan :: (ToJSON alpha) => TChan (Event (alpha, UTCTime)) -> Stream alpha -> IO ()

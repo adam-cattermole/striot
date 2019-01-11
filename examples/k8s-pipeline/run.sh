@@ -7,6 +7,7 @@ PREFIX="adamcattermole"
 SINK="server"
 
 AMQ_BROKER="striot-artemis.eastus.cloudapp.azure.com"
+SINK_HOST="striot-sink.eastus.cloudapp.azure.com"
 
 RESULTS_DIR="output"
 
@@ -30,12 +31,18 @@ build() {
 
   name=haskell-link
   log $PREFIX/$name
-  docker build -t $PREFIX/$name $dir/
+  docker build -t $PREFIX/$name client2/
   docker push $PREFIX/$name:latest
 
   log "Creating Kubernetes services..."
   log $name
-  helm install -n $name --debug --set image.repository.prefix=$PREFIX --set image.repository.name=$name --set image.tag=latest --set amqBroker.host=$AMQ_BROKER ./test-chart
+  helm install -n $name \
+               --debug \
+               --set image.repository.prefix=$PREFIX \
+               --set image.repository.name=$name \
+               --set image.tag=latest \
+               --set amqBroker.host=$AMQ_BROKER \
+               --set sink.host=$SINK_HOST ./test-chart
 }
 
 
@@ -96,7 +103,6 @@ stop() {
   name="haskell-link"
   log $name
   kubectl scale deployment $name --replicas=0
-  done
 }
 
 

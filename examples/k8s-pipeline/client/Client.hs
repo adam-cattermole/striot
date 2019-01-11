@@ -6,8 +6,12 @@ import Striot.Nodes
 import System.Environment
 import System.IO
 import Data.List
+import Data.List.Split
+import Taxi
+
 
 portNum  = "61616"::ServiceName
+
 
 main :: IO ()
 main = do
@@ -17,7 +21,8 @@ main = do
     putStrLn $ "HOSTNAME: " ++ shortPodName
     putStrLn $ "AMQ_BROKER_SERVICE_HOST: " ++ brokerHost
     threadDelay (1 * 1000 * 1000)
-    nodeSourceAmqMqtt src1 streamGraphid shortPodName brokerHost portNum -- processes source before sending it to another node
+    nodeSourceAmqMqtt src1 streamGraphFn shortPodName brokerHost portNum -- processes source before sending it to another node
+
 
 wordsWhen :: (Char -> Bool) -> String -> [String]
 wordsWhen p s =  case dropWhile p s of
@@ -25,16 +30,20 @@ wordsWhen p s =  case dropWhile p s of
                       s' -> w : wordsWhen p s''
                             where (w, s'') = break p s'
 
+
 streamGraphid :: Stream String -> Stream String
 streamGraphid = streamMap Prelude.id
 
-streamGraph2 :: Stream String -> Stream String
-streamGraph2 s = streamMap (\st-> st++st) s
 
-src1:: IO String
-src1 = clockStreamNamed "Hello from Client!" 1000
+src1 = do
+   line <- getLine;
+   return $ stringsToTrip $ splitOn "," line
 
-clockStreamNamed:: String -> Int -> IO String -- returns the (next) payload to be added into an event and sent to a server
-clockStreamNamed message period = do -- period is in ms
-                                    threadDelay (period*1000)
-                                    return message
+
+streamGraphFn :: Stream Trip -> Stream [Journey]
+streamGraphFn n1 = let
+    n2 = (\s -> streamMap tripToJourney s) n1
+    n3 = (\s -> streamFilter (\j -> inRangeQ1 (start j)) s) n2
+    n4 = (\s -> streamFilter (\j -> inRangeQ1 (end j)) s) n3
+    n5 = (\s -> streamWindow (slidingJourneyTime 1800000) s) n4
+    in n5
