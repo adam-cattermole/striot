@@ -3,11 +3,12 @@ module Striot.Nodes ( nodeSink
                     , nodeLink
                     , nodeLink2
                     , nodeSource
+                    , nodeSourceBuilder
                     ) where
 
 import           Control.Concurrent
 import           Control.Concurrent.Chan.Unagi as U
-import           Control.Monad                 (forever, when)
+import           Control.Monad
 import           Data.Aeson
 import qualified Data.ByteString                as B
 import qualified Data.ByteString.Char8          as BC (putStrLn)
@@ -95,25 +96,44 @@ nodeLink2' sock1 sock2 streamOps host port = do
 nodeSource :: ToJSON beta => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
 nodeSource pay streamGraph host port = do
     putStrLn "Starting source ..."
-    stream <- readListFromSource pay
+    stream <- readListFromSource pay defaultEventBuilder
+    let result = streamGraph stream
+    sendStream result host port -- or printStream if it's a completely self contained streamGraph
+
+
+nodeSourceBuilder :: ToJSON beta => IO alpha -> (alpha -> Int -> Event alpha) -> (Stream alpha -> Stream beta) -> HostName -> ServiceName -> IO ()
+nodeSourceBuilder pay buildEvent streamGraph host port = do
+    putStrLn "Starting source ..."
+    stream <- readListFromSourceBuilder pay buildEvent
     let result = streamGraph stream
     sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
 
 --- UTILITY FUNCTIONS ---
 
-readListFromSource :: IO alpha -> IO (Stream alpha)
+readListFromSource :: IO alpha -> (alpha -> IO (Int -> Event alpha)) -> IO (Stream alpha)
 readListFromSource = go 0
   where
-    go i pay = System.IO.Unsafe.unsafeInterleaveIO $ do
-        x  <- msg i
-        xs <- go (i + 1) pay    -- This will overflow eventually
-        return (x : xs)
-      where
-        msg x = do
-            now     <- getCurrentTime
-            payload <- pay
-            return (Event x (Just now) (Just payload))
+    go i pay buildEvent = System.IO.Unsafe.unsafeInterleaveIO $ do
+        -- liftM2 (:) ((buildEvent =<< pay) `ap` return i) (go (i + 1) pay buildEvent)
+        x <- buildEvent =<< pay
+        xs <- go (i + 1) pay buildEvent     -- This will overflow eventually
+        return (x i : xs)
+
+
+readListFromSourceBuilder :: IO alpha -> (alpha -> Int -> Event alpha) -> IO (Stream alpha)
+readListFromSourceBuilder = go 0
+  where
+    go i pay buildEvent = System.IO.Unsafe.unsafeInterleaveIO $ do
+        x  <- pay
+        xs <- go (i + 1) pay buildEvent    -- This will overflow eventually
+        return (buildEvent x i : xs)
+
+
+defaultEventBuilder :: alpha -> IO (Int -> Event alpha)
+defaultEventBuilder x = do
+    now <- getCurrentTime
+    return (\i -> Event i (Just now) (Just x))
 
 
 {- processSocket is a wrapper function that handles concurrently
