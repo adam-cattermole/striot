@@ -53,12 +53,19 @@ type WindowMaker alpha = Stream alpha -> [Stream alpha]
 type WindowAggregator alpha beta = [alpha] -> beta
 
 streamWindow :: WindowMaker alpha -> Stream alpha -> Stream [alpha]
-streamWindow fwm s = map (\win-> case win of
-                                    (Event _ t _):_ -> Event 0 t       (Just (getVals win))
-                                    []              -> Event 0 Nothing (Just []))
-                        (fwm s)
+streamWindow fwm s = mapWindowId Nothing (fwm s)
            where getVals :: Stream alpha -> [alpha]
-                 getVals s = map (\(Event _ _ (Just val))->val) $ filter dataEvent s
+                 getVals s' = map (\(Event _ _ (Just val))->val) $ filter dataEvent s'
+                 mapWindowId :: Maybe Int -> [Stream alpha] -> Stream [alpha]
+                 mapWindowId _ [] = []
+                 mapWindowId (Just cid) (x:xs) =
+                     case x of
+                         Event _   t _ : _ -> Event cid t       (Just (getVals x)) : mapWindowId (Just (cid + 1)) xs
+                         []                -> Event cid Nothing (Just [])          : mapWindowId (Just (cid + 1)) xs
+                 mapWindowId Nothing    (x:xs) =
+                     case x of
+                         Event eid t _ : _ -> Event eid t       (Just (getVals x)) : mapWindowId (Just (eid + 1)) xs
+                         []                -> Event 0   Nothing (Just [])          : mapWindowId Nothing          xs
 
 -- a useful function building on streamWindow and streamMap
 streamWindowAggregate :: WindowMaker alpha -> WindowAggregator alpha beta -> Stream alpha -> Stream beta
@@ -101,7 +108,7 @@ chopTime tLength s@((Event _ (Just t) _):_) = chopTime' (milliToTimeDiff tLength
 
 timeTake :: UTCTime -> Stream alpha -> (Stream alpha, Stream alpha)
 timeTake endTime s = span (\(Event _ (Just t) _) -> t < endTime) s
-
+                                        
 complete :: WindowMaker alpha
 complete s = [s]
 
@@ -160,16 +167,25 @@ streamFilterAcc accfn acc ff (e@(Event _ _ Nothing ):r)             = e:(streamF
 
 -- Stream map with accumulating parameter
 streamScan:: (beta -> alpha -> beta) -> beta -> Stream alpha -> Stream beta
-streamScan mf acc []                        = (Event 0  Nothing  (Just acc   )):[]
-streamScan mf acc ((Event id t (Just v)):r) = (Event id t        (Just newacc)):(streamScan mf newacc r) where newacc = mf acc v
-streamScan mf acc ((Event id t Nothing ):r) = (Event id t        Nothing      ):(streamScan mf acc    r) -- allow events without data to pass through
+streamScan _  _   []                       = []
+streamScan mf acc (Event eid t (Just v):r) = Event eid t (Just newacc):streamScan mf newacc r where newacc = mf acc v
+streamScan mf acc (Event eid t Nothing :r) = Event eid t Nothing      :streamScan mf acc    r -- allow events without data to pass through
+
+instance Arbitrary a => Arbitrary (Event a) where
+    arbitrary = do
+        eid <- arbitrary
+        i <- arbitrary
+        return $ Event eid Nothing (Just i)
+
+prop_streamScan_samelength :: Stream Int -> Bool
+prop_streamScan_samelength s = length s == length (streamScan (\_ x-> x) 0 s)
 
 -- Map a Stream to a set of events
 streamExpand :: Stream [alpha] -> Stream alpha
 streamExpand s = concatMap eventExpand s
       where eventExpand :: Event [alpha] -> [Event alpha]
-            eventExpand (Event id t (Just v)) = map (\nv->Event id t (Just nv)) v
-            eventExpand (Event id t Nothing ) = [Event id t Nothing]
+            eventExpand (Event eid t (Just v)) = map (\nv->Event eid t (Just nv)) v
+            eventExpand (Event eid t Nothing ) = [Event eid t Nothing]
 
 --streamSource :: Stream alpha -> Stream alpha
 --streamSource ss = ss
