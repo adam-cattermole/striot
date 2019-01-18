@@ -449,9 +449,13 @@ retrieveMessagesMqtt messageChan = unsafeInterleaveIO $ do
 
 sendStreamAmqMqtt :: ToJSON alpha => String -> Stream alpha -> HostName -> ServiceName -> IO ()
 sendStreamAmqMqtt podName stream host port = do
-    (conf, messageChan) <- runMqttPub (T.pack podName) mqttTopics host (read port)
+    (conf, pubChan) <- runMqttPub (T.pack podName) mqttTopics host (read port)
     -- mapM_  (print . encode) stream
-    mapM_ (\x -> MQTT.publish conf MQTT.NoConfirm True (head mqttTopics) $ BLC.toStrict . encode $ x) stream
+    -- _ <- forkIO $ forever $ do
+    --     x <- MQTT.payload . MQTT.body <$> atomically (readTChan pubChan)
+    --     print x
+    let publish x = MQTT.publish conf MQTT.NoConfirm True (head mqttTopics) $ BLC.toStrict . encode $ x
+    mapM_ publish stream
 
 
 mqttTopics :: [MQTT.Topic]

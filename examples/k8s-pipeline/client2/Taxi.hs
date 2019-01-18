@@ -149,6 +149,10 @@ changes (e@(Event _ _ (Just val)):r) = e : streamFilterAcc (\_ h -> h) val (/=) 
 topk :: (Num freq, Ord freq, Ord alpha) => Int -> [alpha] -> [(alpha, freq)]
 topk i = topkMap i . freqMap
 
+-- -- more efficient topk (I think...)
+-- topk' :: (Ord alpha) => Int -> [alpha] -> [(alpha, Int)]
+-- topk' i = take i . map (\xs -> (head xs, length xs)) . group . sort
+
 -- generates frequency map for occurrences of elements in a list
 freqMap :: (Num freq, Ord freq, Ord alpha) => [alpha] -> Map.Map alpha freq
 freqMap = foldr (\k -> Map.insertWith (+) k 1) Map.empty

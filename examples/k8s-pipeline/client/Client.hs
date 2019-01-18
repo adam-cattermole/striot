@@ -11,6 +11,8 @@ import Taxi
 
 
 portNum  = "61616"::ServiceName
+-- portNum  = "9002"::ServiceName
+-- linkHost = "127.0.0.1"::HostName
 
 
 main :: IO ()
@@ -21,7 +23,9 @@ main = do
     putStrLn $ "HOSTNAME: " ++ shortPodName
     putStrLn $ "AMQ_BROKER_SERVICE_HOST: " ++ brokerHost
     threadDelay (1 * 1000 * 1000)
-    nodeSourceAmqMqtt src1 streamGraphFn shortPodName brokerHost portNum -- processes source before sending it to another node
+    hdl <- openFile "sorteddata.csv" ReadMode
+    nodeSourceAmqMqtt (hGetLine hdl) streamGraphFn shortPodName brokerHost portNum -- processes source before sending it to another node
+    -- nodeSource (hGetLine hdl) streamGraphFn linkHost portNum
 
 
 wordsWhen :: (Char -> Bool) -> String -> [String]
@@ -35,14 +39,22 @@ streamGraphid :: Stream String -> Stream String
 streamGraphid = streamMap Prelude.id
 
 
-src1 = do
-   line <- getLine;
-   return $ stringsToTrip $ splitOn "," line
+tripParse :: Event String -> Event Trip
+tripParse e@(Event eid _ (Just v)) =
+    let t = stringsToTrip $ Data.List.Split.splitOn "," v
+    in  e { eventId = eid
+          , time    = Just $ dropoffDatetime t
+          , value   = Just t }
 
-streamGraphFn :: Stream Trip -> Stream [Journey]
+-- src1 hdl = do
+--    line <- hGetLine hdl
+--    return $ stringsToTrip $ splitOn "," line
+
+streamGraphFn :: Stream String -> Stream [Journey]
 streamGraphFn n1 = let
-    n2 = (\s -> streamWindow tripTimes s) n1
-    n3 = (\s -> streamExpand s) n2
+    -- n2 = (\s -> streamWindow tripTimes s) n1
+    -- n3 = (\s -> streamExpand s) n2
+    n3 = map tripParse n1
     n4 = (\s -> streamMap tripToJourney s) n3
     n5 = (\s -> streamFilter (\j -> inRangeQ1 (start j)) s) n4
     n6 = (\s -> streamFilter (\j -> inRangeQ1 (end j)) s) n5
