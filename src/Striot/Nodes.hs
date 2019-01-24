@@ -6,12 +6,12 @@ module Striot.Nodes ( nodeSink
                     ) where
 
 import           Control.Concurrent
-import           Control.Concurrent.Chan.Unagi as U
-import           Control.Monad                 (forever, when)
+import qualified Control.Concurrent.Chan.Unagi.Bounded as U
+import           Control.Monad                 (forever, when, liftM2)
 import           Data.Aeson
 import qualified Data.ByteString                as B
-import qualified Data.ByteString.Char8          as BC (putStrLn)
-import qualified Data.ByteString.Lazy.Char8     as BLC (hPutStrLn, putStrLn)
+import qualified Data.ByteString.Char8          as BC
+import qualified Data.ByteString.Lazy.Char8     as BLC
 import           Data.Maybe
 import           Data.Time                      (getCurrentTime)
 import           Network.Socket
@@ -111,16 +111,15 @@ readListFromSource = go 0
         return (x : xs)
       where
         msg x = do
-            now     <- getCurrentTime
-            payload <- pay
-            return (Event x (Just now) (Just payload))
+            now <- getCurrentTime
+            Event x (Just now) . Just <$> pay
 
 
 {- processSocket is a wrapper function that handles concurrently
 accepting and handling connections on the socket and reading all of the strings
 into an event Stream -}
 processSocket :: FromJSON alpha => Socket -> IO (Stream alpha)
-processSocket sock = acceptConnections sock >>= readEventsTChan
+processSocket sock = U.getChanContents =<< acceptConnections sock
 
 
 {- acceptConnections takes a socket as an argument and spins up a new thread to
@@ -128,9 +127,16 @@ process the data received. The returned TChan object contains the data from
 the socket -}
 acceptConnections :: FromJSON alpha => Socket -> IO (U.OutChan (Event alpha))
 acceptConnections sock = do
-    (inChan, outChan) <- U.newChan
-    _         <- forkIO $ connectionHandler sock inChan
+    (inChan, outChan) <- U.newChan internalQueueSize
+    _                 <- forkIO $ connectionHandler sock inChan
     return outChan
+
+
+{- We are using a bounded queue to prevent extreme memory usage when
+input rate > consumption rate. This value may need to be increased to achieve
+higher throughput when computation costs are low -}
+internalQueueSize :: Int
+internalQueueSize = 1
 
 
 {- connectionHandler sits accepting any new connections. Once
@@ -141,80 +147,35 @@ connectionHandler :: FromJSON alpha => Socket -> U.InChan (Event alpha) -> IO ()
 connectionHandler sockIn eventChan = forever $ do
     -- putStrLn "Awaiting new connection"
     (sock, _) <- accept sockIn
-    hdl <- socketToHandle sock ReadWriteMode
+    hdl       <- socketToHandle sock ReadWriteMode
     -- putStrLn "Forking to process new connection"
-    forkFinally   (processHandle hdl eventChan) (\_ -> hClose hdl)
+    forkFinally (processHandle hdl eventChan) (\_ -> hClose hdl)
 
 
 {- processHandle takes a Handle and TChan. All of the events are read through
 hGetLines' with the IO deferred lazily. The string list is mapped to a Stream
-and passed to writeEventsTChan -}
+and passed to U.writeList2Chan -}
 processHandle :: FromJSON alpha => Handle -> U.InChan (Event alpha) -> IO ()
-processHandle handle eventChan = do
-    byteStream <- hGetLines' handle
-    let eventStream = mapMaybe decodeStrict byteStream
-    U.writeList2Chan eventChan eventStream
-
-
-{- writeEventsTChan takes a TChan and Stream of the same type, and recursively
-writes the events atomically to the TChan, until an empty list -}
-writeEventsTChan :: FromJSON alpha => U.InChan (Event alpha) -> Stream alpha -> IO ()
-writeEventsTChan eventChan = mapM_ (U.writeChan eventChan)
-
-{- readEventsTChan creates a stream of events from reading the next element from
-a TChan, but the IO is deferred lazily. Only when the next value of the Stream
-is evaluated does the IO computation take place -}
-readEventsTChan :: FromJSON alpha => U.OutChan (Event alpha) -> IO (Stream alpha)
-readEventsTChan eventChan = System.IO.Unsafe.unsafeInterleaveIO $ do
-    x <- U.readChan eventChan
-    xs <- readEventsTChan eventChan
-    return (x : xs)
-
-
-readListFromSocket :: Socket -> IO [B.ByteString]
-readListFromSocket sock = do
-    (_, stream) <- readListFromSocket' sock
-    return stream
-
-
-readListFromSocket' :: Socket -> IO (Handle, [B.ByteString])
-readListFromSocket' sockIn = do
-    (sock,_) <- accept sockIn
-    hdl <- socketToHandle sock ReadWriteMode
-    -- putStrLn "Open input connection"
-    stream <- hGetLines' hdl
-    return (hdl, stream)
-
-
-readEventStreamFromSocket :: FromJSON alpha => Socket -> IO (Handle, Stream alpha)
-readEventStreamFromSocket sock = do
-    (hdl, byteStream) <- readListFromSocket' sock
-    let eventStream = mapMaybe decodeStrict byteStream
-    return (hdl, eventStream)
+processHandle handle eventChan =
+    U.writeList2Chan eventChan <$> mapMaybe decodeStrict =<< hGetLines' handle
 
 
 sendStream :: ToJSON alpha => Stream alpha -> HostName -> ServiceName -> IO ()
 sendStream []     _    _    = return ()
 sendStream stream host port = withSocketsDo $ do
-    sock <- connectSocket host port
+    sock   <- connectSocket host port
     handle <- socketToHandle sock ReadWriteMode
     -- putStrLn "Open output connection"
-    hPutLines'    handle stream
+    hPutLines' handle stream
 
 
 {- hGetLines' creates a list of Strings from a Handle, where the IO computation
 is deferred lazily until the values are requested -}
-hGetLines' :: Handle -> IO [B.ByteString]
+hGetLines' :: Handle -> IO [BC.ByteString]
 hGetLines' handle = System.IO.Unsafe.unsafeInterleaveIO $ do
-    readable <- hIsReadable handle
-    eof      <- hIsEOF handle
-    if not eof && readable
-        then do
-            x  <- B.hGetLine handle
-            xs <- hGetLines' handle
-            -- BC.putStrLn x
-            return (x : xs)
-        else return []
+    hReady <- liftM2 (&&) (hIsReadable handle) (not <$> hIsEOF handle)
+    if hReady then liftM2 (:) (BC.hGetLine handle) (hGetLines' handle)
+    else return []
 
 
 hPutLines' :: ToJSON alpha => Handle -> Stream alpha -> IO ()
@@ -227,7 +188,7 @@ hPutLines' handle (x:xs) = do
     open      <- hIsOpen handle
     when (open && writeable) $ do
         -- BLC.putStrLn (encode x)
-        BLC.hPutStrLn    handle (encode x)
+        BLC.hPutStrLn handle (encode x)
         hPutLines' handle xs
 
 
