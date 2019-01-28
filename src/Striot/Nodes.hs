@@ -260,7 +260,6 @@ readEventStreamFromSocket sock = do
     (hdl, byteStream) <- readListFromSocket' sock
     let eventStream = mapMaybe decodeStrict byteStream
     return (hdl, eventStream)
->>>>>>> Changes to use unagi-chan instead of STM TChan
 
 
 sendStream :: ToJSON alpha => Stream alpha -> HostName -> ServiceName -> IO ()
