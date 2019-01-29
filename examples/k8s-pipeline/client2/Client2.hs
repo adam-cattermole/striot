@@ -28,7 +28,7 @@ main = do
     putStrLn $ "HOSTNAME: " ++ shortPodName
     putStrLn $ "AMQ_BROKER_SERVICE_HOST: " ++ brokerHost
     putStrLn $ "HASKELL_SERVER_SERVICE_HOST: " ++ connectHost
-    nodeLinkAmqMqtt streamGraphFn shortPodName brokerHost brokerPort connectHost connectPort
+    nodeLinkMqtt streamGraphFn shortPodName brokerHost brokerPort connectHost connectPort
     -- nodeLink streamGraphFn linkPort connectHost connectPort
 
 

@@ -23,8 +23,8 @@ type Dollars = Float
 
 type Degrees = Float
 data Location = Location         -- taxi's latitude and longitude
-                { lat  :: Degrees
-                , long :: Degrees
+                { lat  :: !Degrees
+                , long :: !Degrees
                 } deriving (Eq, Ord, Show, Generic)
 
 data PaymentType = Card | Cash
@@ -33,36 +33,36 @@ data PaymentType = Card | Cash
 type Medallion  = MD5Sum
 
 data Trip = Trip
-   { medallion        :: Medallion
-   , hackLicense      :: MD5Sum
-   , pickupDatetime   :: UTCTime
-   , dropoffDatetime  :: UTCTime
-   , tripTimeInSecs   :: Int
-   , tripDistance     :: Float
-   , pickup           :: Location
-   , dropoff          :: Location
-   , paymentType      :: PaymentType
-   , fareAmount       :: Dollars
-   , surcharge        :: Dollars
-   , mtaTax           :: Dollars
-   , tipAmount        :: Dollars
-   , tollsAmount      :: Dollars
-   , totalAmount      :: Dollars
+   { medallion        :: !Medallion
+   , hackLicense      :: !MD5Sum
+   , pickupDatetime   :: !UTCTime
+   , dropoffDatetime  :: !UTCTime
+   , tripTimeInSecs   :: !Int
+   , tripDistance     :: !Float
+   , pickup           :: {-# UNPACK #-} !Location
+   , dropoff          :: {-# UNPACK #-} !Location
+   , paymentType      :: {-# UNPACK #-} !PaymentType
+   , fareAmount       :: !Dollars
+   , surcharge        :: !Dollars
+   , mtaTax           :: !Dollars
+   , tipAmount        :: !Dollars
+   , tollsAmount      :: !Dollars
+   , totalAmount      :: !Dollars
    } deriving (Eq, Ord, Show, Generic)
 
 data Cell = Cell  -- the Cell in which the Taxi is located
-   { clat  :: Int
-   , clong :: Int}
+   { clat  :: !Int
+   , clong :: !Int}
    deriving (Eq, Ord, Generic)
 
 instance Show Cell where
     show c = show (clat c) ++ "." ++ show (clong c)
 
 data Journey  = Journey -- a taxi journey from one cell to another
-   { start       :: Cell
-   , end         :: Cell
-   , pickupTime  :: UTCTime
-   , dropoffTime :: UTCTime}
+   { start       :: {-# UNPACK #-} !Cell
+   , end         :: {-# UNPACK #-} !Cell
+   , pickupTime  :: !UTCTime
+   , dropoffTime :: !UTCTime}
    deriving (Eq, Ord, Generic)
 
 instance Show Journey where
@@ -148,10 +148,6 @@ changes (e@(Event _ _ (Just val)):r) = e : streamFilterAcc (\_ h -> h) val (/=) 
 -- produces an ordered list of the i most frequent elements from list a list
 topk :: (Num freq, Ord freq, Ord alpha) => Int -> [alpha] -> [(alpha, freq)]
 topk i = topkMap i . freqMap
-
--- -- more efficient topk (I think...)
--- topk' :: (Ord alpha) => Int -> [alpha] -> [(alpha, Int)]
--- topk' i = take i . map (\xs -> (head xs, length xs)) . group . sort
 
 -- generates frequency map for occurrences of elements in a list
 freqMap :: (Num freq, Ord freq, Ord alpha) => [alpha] -> Map.Map alpha freq

@@ -6,7 +6,8 @@ import Striot.Nodes
 import System.Environment
 import System.IO
 import Data.List
-import Data.List.Split
+import qualified Data.List.Split as S
+import Data.Maybe (fromJust)
 import Taxi
 
 
@@ -23,9 +24,12 @@ main = do
     putStrLn $ "HOSTNAME: " ++ shortPodName
     putStrLn $ "AMQ_BROKER_SERVICE_HOST: " ++ brokerHost
     threadDelay (1 * 1000 * 1000)
-    hdl <- openFile "sorteddata.csv" ReadMode
-    nodeSourceAmqMqtt (hGetLine hdl) streamGraphFn shortPodName brokerHost portNum -- processes source before sending it to another node
+    -- hdl <- openFile "sorteddata.csv" ReadMode
+    -- hSetBuffering hdl LineBuffering
+    nodeSourceMqtt (src1) streamGraphFn shortPodName brokerHost portNum -- processes source before sending it to another node
     -- nodeSource (hGetLine hdl) streamGraphFn linkHost portNum
+
+
 
 
 wordsWhen :: (Char -> Bool) -> String -> [String]
@@ -41,20 +45,19 @@ streamGraphid = streamMap Prelude.id
 
 tripParse :: Event String -> Event Trip
 tripParse e@(Event eid _ (Just v)) =
-    let t = stringsToTrip $ Data.List.Split.splitOn "," v
+    let t = stringsToTrip $ S.splitOn "," v
     in  e { eventId = eid
           , time    = Just $ dropoffDatetime t
           , value   = Just t }
 
--- src1 hdl = do
---    line <- hGetLine hdl
---    return $ stringsToTrip $ splitOn "," line
+-- src1 :: IO Trip
+src1 = stringsToTrip . S.splitOn "," <$> getLine
 
-streamGraphFn :: Stream String -> Stream [Journey]
+streamGraphFn :: Stream Trip -> Stream [Journey]
 streamGraphFn n1 = let
-    -- n2 = (\s -> streamWindow tripTimes s) n1
-    -- n3 = (\s -> streamExpand s) n2
-    n3 = map tripParse n1
+    n2 = (\s -> streamWindow tripTimes s) n1
+    n3 = (\s -> streamExpand s) n2
+    -- n3 = map tripParse n1
     n4 = (\s -> streamMap tripToJourney s) n3
     n5 = (\s -> streamFilter (\j -> inRangeQ1 (start j)) s) n4
     n6 = (\s -> streamFilter (\j -> inRangeQ1 (end j)) s) n5
