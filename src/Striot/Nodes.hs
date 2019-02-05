@@ -8,7 +8,7 @@ module Striot.Nodes ( nodeSink
                     , nodeSource
                     -- , nodeSourceAmq
                     , nodeSourceMqtt
-                    , nodeSourceMqttC
+                    -- , nodeSourceMqttC
                     -- , nodeLinkAmq
                     , nodeLinkMqtt
                     ) where
@@ -140,24 +140,24 @@ nodeSourceMqtt pay streamGraph podName host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
     let result = streamGraph stream
-    sendStreamMqtt result podName host port
+    sendStreamMqttC result podName host port
 
 
-nodeSourceMqttC :: (ToJSON alpha, ToJSON beta) => IO Handle -> (Stream alpha -> Stream beta) -> String -> HostName -> PortNumber -> IO ()
-nodeSourceMqttC pay streamGraph podName host port = do
-    putStrLn "Starting source ..."
-    mc <- runMqttPub podName host port
-    hdl <- pay
-    runConduit
-        $ sourceHandle hdl
-       .| decodeUtf8C
-       .| CT.lines
-       .| mapMC (\t -> do
-           now <- getCurrentTime
-           return (Event 0 (Just now) (Just t)))
-        -- $ readListFromSourceC pay
-       .| mapM_C (\x -> publishq mc (head mqttTopics) (encode x) False QoS0)
-    print =<< waitForClient mc
+-- nodeSourceMqttC :: (ToJSON alpha, ToJSON beta) => IO Handle -> (Stream alpha -> Stream beta) -> String -> HostName -> PortNumber -> IO ()
+-- nodeSourceMqttC pay streamGraph podName host port = do
+--     putStrLn "Starting source ..."
+--     mc <- runMqttPub podName host port
+--     hdl <- pay
+--     runConduit
+--         $ sourceHandle hdl
+--        .| decodeUtf8C
+--        .| CT.lines
+--        .| mapMC (\t -> do
+--            now <- getCurrentTime
+--            return (Event 0 (Just now) (Just t)))
+--         -- $ readListFromSourceC pay
+--        .| mapM_C (\x -> publishq mc (head mqttTopics) (encode x) False QoS0)
+--     print =<< waitForClient mc
        -- .| mapM_C (print . encode)
 
 
@@ -445,6 +445,14 @@ sendStreamMqtt stream podName host port = do
             val <- evaluate . force . encode $ x
             publishq mc (head mqttTopics) val False QoS0) stream
 
+
+sendStreamMqttC :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
+sendStreamMqttC stream podName host port = do
+    mc <- runMqttPub podName host port
+    runConduit
+        $ yieldMany stream
+       .| mapMC (evaluate . force . encode)
+       .| mapM_C (\x -> publishq mc (head mqttTopics) x False QoS0)
 
 
 --     -- mapM_  (print . encode) stream

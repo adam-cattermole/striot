@@ -1,5 +1,4 @@
 import Control.Concurrent
-import Network.Socket
 import Striot.FunctionalIoTtypes
 import Striot.FunctionalProcessing
 import Striot.Nodes
@@ -11,7 +10,7 @@ import Data.Maybe (fromJust)
 import Taxi
 
 
-portNum  = "61616"::ServiceName
+portNum  = 61616 :: Int
 -- portNum  = "9002"::ServiceName
 -- linkHost = "127.0.0.1"::HostName
 
