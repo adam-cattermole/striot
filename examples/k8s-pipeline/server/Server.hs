@@ -20,7 +20,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 
 
-listenPort = "9001" :: ServiceName
+listenPort = 9001 :: Int
 fileName = "output-log.txt"
 
 

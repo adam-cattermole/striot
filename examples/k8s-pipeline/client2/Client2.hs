@@ -13,10 +13,10 @@ import Data.Maybe
 import Taxi
 
 
-brokerPort =  "61616" :: ServiceName
+brokerPort =  61616 :: Int
 -- linkPort = "9002" :: HostName
 -- connectHost = "127.0.0.1" :: HostName
-connectPort = "9001" :: ServiceName
+connectPort = 9001 :: Int
 
 
 main :: IO ()
