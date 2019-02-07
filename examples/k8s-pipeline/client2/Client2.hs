@@ -39,8 +39,8 @@ wordsWhen p s =  case dropWhile p s of
                             where (w, s'') = break p s'
 
 
-streamGraphFn :: Stream [Journey] -> Stream ((UTCTime,UTCTime),[(Journey,Int)])
-streamGraphFn = streamMap (\w -> (let lj = last w in (pickupTime lj, dropoffTime lj), topk 10 w))
+streamGraphFn :: Stream (Int,[Journey]) -> Stream (Int,((UTCTime,UTCTime),[(Journey,Int)]))
+streamGraphFn = streamMap (\(i,w) -> (let lj = last w in (i,((pickupTime lj, dropoffTime lj), topk 10 w))))
 
 
 streamGraphid :: Stream [Journey] -> Stream [Journey]
