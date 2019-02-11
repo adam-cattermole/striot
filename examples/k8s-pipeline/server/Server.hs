@@ -1,23 +1,25 @@
-import System.IO
-import System.IO.Unsafe (unsafeInterleaveIO)
-import Data.List
-import Data.List.Split
-import Data.Maybe
+import           Conduit
+import           Data.List
+import           Data.List.Split
+import           Data.Maybe
+import           System.IO
+import           System.IO.Unsafe            (unsafeInterleaveIO)
 
-import Striot.FunctionalProcessing
-import Striot.FunctionalIoTtypes
-import Striot.Nodes
-import Taxi
-import Network.Socket (ServiceName)
+import           Striot.FunctionalIoTtypes
+import           Striot.FunctionalProcessing
+import           Striot.Nodes
+import           Taxi
 
-import Data.Time (getCurrentTime)
-import Data.Time.Clock (UTCTime)
-import qualified Data.ByteString.Lazy.Char8 as BLC (hPutStrLn)
-import Data.Aeson
-import qualified Data.Text as T
-import Control.Monad (when)
-import Control.Concurrent
-import Control.Concurrent.STM
+import           Conduit
+import           Control.Concurrent.Async    (async)
+import           Control.Concurrent.STM
+import           Control.Monad               (when)
+import           Data.Aeson
+import qualified Data.ByteString.Char8       as BC (snoc)
+import qualified Data.ByteString.Lazy.Char8  as BLC (hPutStrLn, toStrict)
+import qualified Data.Text                   as T
+import           Data.Time                   (getCurrentTime)
+import           Data.Time.Clock             (UTCTime)
 
 
 listenPort = 9001 :: Int
@@ -28,9 +30,7 @@ main :: IO ()
 main = do
     chan <- newTChanIO
     writeFile fileName ""
-    hdl <- openFile fileName WriteMode
-    hSetBuffering hdl NoBuffering
-    _ <- forkFinally (writeToFile hdl chan) (\_ -> hClose hdl)
+    async $ writeToFile fileName chan
     nodeSink streamGraphFn (sinkToChan chan) listenPort
 
 
@@ -77,41 +77,28 @@ streamGraphFn n1 = let
 
 
 sinkToChan :: (ToJSON alpha) => TChan (Event (alpha, UTCTime)) -> Stream alpha -> IO ()
-sinkToChan chan stream = do
-    out <- mapTime stream
-    mapM_ (writeEvent chan) out
-  where
-      writeEvent chan x = atomically $ writeTChan chan x
+sinkToChan chan stream =
+    runConduit
+        $ yieldMany stream
+       .| mapMC (\x@(Event _ _ (Just v)) -> do
+                now <- getCurrentTime
+                return x { value = Just (v, now) }
+                )
+       .| mapM_C (atomically . writeTChan chan)
 
 
-writeToFile :: (ToJSON alpha) => Handle -> TChan (Event (alpha, UTCTime)) -> IO ()
-writeToFile hdl chan = do
-    stream <- readEventsTChan chan
-    hPutLines'' hdl stream
+writeToFile :: (ToJSON alpha) => String -> TChan (Event (alpha, UTCTime)) -> IO ()
+writeToFile fName chan =
+    runConduitRes
+        $ sourceTChanYield chan
+       .| mapC ((`BC.snoc` '\n') . BLC.toStrict . encode)
+       .| sinkFile fName
 
 
-readEventsTChan :: ToJSON alpha => TChan (Event (alpha, UTCTime)) -> IO (Stream (alpha, UTCTime))
-readEventsTChan eventChan = System.IO.Unsafe.unsafeInterleaveIO $ do
-    x <- atomically $ readTChan eventChan
-    xs <- readEventsTChan eventChan
-    return (x : xs)
-
-
-mapTime :: Stream alpha -> IO (Stream (alpha, UTCTime))
-mapTime (e@(Event eid t (Just v)):r) = unsafeInterleaveIO $ do
-    x <- msg e v
-    xs <- mapTime r
-    return (x:xs)
-  where
-    msg x v = do
-        now <- getCurrentTime
-        return x { value = Just (v, now) }
-
-
-hPutLines'' :: ToJSON alpha => Handle -> Stream alpha -> IO ()
-hPutLines'' handle (x:xs) = do
-    writable <- hIsWritable handle
-    when writable $ do
-        BLC.hPutStrLn handle (encode x)
-        hFlush handle
-        hPutLines'' handle xs
+sourceTChanYield :: MonadIO m => TChan a -> ConduitT i a m ()
+sourceTChanYield ch = loop
+    where
+        loop = do
+            ms <- liftIO . atomically $ readTChan ch
+            yield ms
+            loop
