@@ -230,6 +230,25 @@ sendStreamMqttC stream podName host port = do
        .| mapMC (evaluate . force . encode)
        .| mapM_C (\x -> publishq mc (head netmqttTopics) x False QoS0)
 
+
+sendStreamMqttMultiC :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
+sendStreamMqttMultiC stream podName host port = do
+    (inChan, outChan) <- U.newChan chanSize
+    mapM_ (\x ->
+        async $ do
+            mc <- runMqttPub (podName++show x) host port
+            runConduit
+                $ sourceUChanYield outChan
+               .| mapM_C (\x -> publishq mc (head netmqttTopics) x False QoS0)) [1..numThreads]
+    runConduit
+        $ yieldMany stream
+       .| mapMC (evaluate . force . encode)
+       .| mapM_C (U.writeChan inChan)
+
+
+numThreads :: Int
+numThreads = 4
+
 -- NET-MQTT
 
 netmqttTopics :: [Topic]
@@ -288,6 +307,15 @@ sourceTChanYield ch = loop
         loop = do
             ms <- liftIO . atomically $ readTChan ch
             yield (MQTT.payload . MQTT.body $ ms)
+            loop
+
+
+sourceUChanYield :: MonadIO m => U.OutChan alpha -> ConduitT i alpha m ()
+sourceUChanYield ch = loop
+    where
+        loop = do
+            ms <- liftIO $ U.readChan ch
+            yield ms
             loop
 
 

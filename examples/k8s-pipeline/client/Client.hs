@@ -61,5 +61,5 @@ streamGraphFn n1 = let
     n5 = (\s -> streamFilter (\j -> inRangeQ1 (start j)) s) n4
     n6 = (\s -> streamFilter (\j -> inRangeQ1 (end j)) s) n5
     n7 = (\s -> streamWindow (slidingTime 1800000) s) n6
-    n8 = (\s -> streamScan (\(i,_) a -> (i+1,a)) (0,mempty) s) n7
+    n8 = (\s -> streamScan (\(i,_) a -> (i+1,a)) (-1,mempty) s) n7
     in n8
