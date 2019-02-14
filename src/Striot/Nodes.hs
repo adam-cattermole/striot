@@ -253,12 +253,13 @@ chanSize = 10
 startPrometheus :: String -> IO Metrics
 startPrometheus nodeName = do
     reg <- PR.new
-    ingressConn   <- PR.registerGauge   "striot_ingress_connection"   mempty reg
-    ingressBytes  <- PR.registerCounter "striot_ingress_bytes_total"  mempty reg
-    ingressEvents <- PR.registerCounter "striot_ingress_events_total" mempty reg
-    egressConn    <- PR.registerGauge   "striot_egress_connection"    mempty reg
-    egressBytes   <- PR.registerCounter "striot_egress_bytes_total"   mempty reg
-    egressEvents  <- PR.registerCounter "striot_egress_events_total"  mempty reg
+    let lbl = addLabel "node" (T.pack nodeName) mempty
+    ingressConn   <- PR.registerGauge   "striot_ingress_connection"   lbl reg
+    ingressBytes  <- PR.registerCounter "striot_ingress_bytes_total"  lbl reg
+    ingressEvents <- PR.registerCounter "striot_ingress_events_total" lbl reg
+    egressConn    <- PR.registerGauge   "striot_egress_connection"    lbl reg
+    egressBytes   <- PR.registerCounter "striot_egress_bytes_total"   lbl reg
+    egressEvents  <- PR.registerCounter "striot_egress_events_total"  lbl reg
     async $ serveHttpTextMetrics 8080 ["metrics"] (PR.sample reg)
     return Metrics { _ingressConn   = ingressConn
                    , _ingressBytes  = ingressBytes
