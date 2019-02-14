@@ -13,41 +13,65 @@ module Striot.Nodes ( nodeSink
                     , nodeLinkMqtt
                     ) where
 
-import           Conduit                               hiding (connect)
-import           Control.Concurrent                    hiding (yield)
-import           Control.Concurrent.Async              (concurrently, async)
-import qualified Control.Concurrent.Chan.Unagi.Bounded as U
+import           Conduit                                        hiding (connect)
+import           Control.Concurrent                             hiding (yield)
+import           Control.Concurrent.Async                       (async,
+                                                                 concurrently)
+import qualified Control.Concurrent.Chan.Unagi.Bounded          as U
 import           Control.Concurrent.STM
 import           Control.DeepSeq
 import           Control.Exception
-import           Control.Monad                         (forever, liftM2, void,
-                                                        when)
+import           Control.Monad                                  (forever,
+                                                                 liftM2, void,
+                                                                 when)
+import           Control.Monad.IO.Class                         (liftIO)
 import           Data.Aeson
-import qualified Data.Attoparsec.ByteString.Char8      as A
-import qualified Data.ByteString                       as B
-import qualified Data.ByteString.Char8                 as BC
-import qualified Data.ByteString.Lazy.Char8            as BLC
+import qualified Data.Attoparsec.ByteString.Char8               as A
+import qualified Data.ByteString                                as B
+import qualified Data.ByteString.Char8                          as BC
+import qualified Data.ByteString.Lazy.Char8                     as BLC
 import           Data.Conduit.Network
-import qualified Data.Conduit.Text                     as CT
+import qualified Data.Conduit.Text                              as CT
 import           Data.Maybe
-import qualified Data.Text                             as T
-import           Data.Time                             (getCurrentTime)
+import qualified Data.Text                                      as T
+import           Data.Time                                      (getCurrentTime)
+import qualified Network.MQTT                                   as MQTT
 import           Network.MQTT.Client
-import qualified Network.MQTT                          as MQTT
 import           Striot.FunctionalIoTtypes
-import           System.Exit                           (exitFailure)
+import           System.Exit                                    (exitFailure)
 import           System.IO
 import           System.IO.Unsafe
+import qualified System.Metrics.Prometheus.Concurrent.Registry  as PR (new, registerCounter,
+                                                                       registerGauge,
+                                                                       sample)
+import           System.Metrics.Prometheus.Concurrent.RegistryT (registerCounter,
+                                                                 runRegistryT)
+import           System.Metrics.Prometheus.Http.Scrape          (serveHttpTextMetrics,
+                                                                 serveHttpTextMetricsT)
+import qualified System.Metrics.Prometheus.Metric.Counter       as PC (Counter,
+                                                                       add, inc)
+import qualified System.Metrics.Prometheus.Metric.Gauge         as PG (Gauge,
+                                                                       dec, inc)
+import           System.Metrics.Prometheus.MetricId
 
 type HostName   = String
 type PortNumber = Int
+
+data Metrics = Metrics { _ingressConn   :: PG.Gauge
+                       , _ingressBytes  :: PC.Counter
+                       , _ingressEvents :: PC.Counter
+                       , _egressConn    :: PG.Gauge
+                       , _egressBytes   :: PC.Counter
+                       , _egressEvents  :: PC.Counter }
 
 --- SINK FUNCTIONS ---
 
 nodeSink :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> IO ()
 nodeSink streamOp iofn inputPort = do
     putStrLn "Starting server ..."
-    stream <- processSocketC inputPort
+    metrics <- startPrometheus "striot-sink"
+    putStrLn "Started metrics..."
+    stream <- processSocketC metrics inputPort
     let result = streamOp stream
     iofn result
 
@@ -55,8 +79,9 @@ nodeSink streamOp iofn inputPort = do
 nodeSink2 :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> (Stream gamma -> IO ()) -> PortNumber -> PortNumber -> IO ()
 nodeSink2 streamOp iofn inputPort1 inputPort2 =do
     putStrLn "Starting server ..."
-    stream1 <- processSocketC inputPort1
-    stream2 <- processSocketC inputPort2
+    metrics <- startPrometheus "striot-sink"
+    stream1 <- processSocketC metrics inputPort1
+    stream2 <- processSocketC metrics inputPort2
     let result = streamOp stream1 stream2
     iofn result
 
@@ -66,19 +91,21 @@ nodeSink2 streamOp iofn inputPort1 inputPort2 =do
 nodeLink :: (Show alpha, FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink streamOp inputPort outputHost outputPort = do
     putStrLn "Starting link ..."
-    stream <- processSocketC inputPort
+    metrics <- startPrometheus "striot-link"
+    stream <- processSocketC metrics inputPort
     let result = streamOp stream
-    sendStreamC result outputHost outputPort
+    sendStreamC metrics result outputHost outputPort
 
 
 -- A Link with 2 inputs
 nodeLink2 :: (FromJSON alpha, FromJSON beta, ToJSON gamma) => (Stream alpha -> Stream beta -> Stream gamma) -> PortNumber -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink2 streamOp inputPort1 inputPort2 outputHost outputPort = do
     putStrLn "Starting link ..."
-    stream1 <- processSocketC inputPort1
-    stream2 <- processSocketC inputPort2
+    metrics <- startPrometheus "striot-link"
+    stream1 <- processSocketC metrics inputPort1
+    stream2 <- processSocketC metrics inputPort2
     let result = streamOp stream1 stream2
-    sendStreamC result outputHost outputPort
+    sendStreamC metrics result outputHost outputPort
 
 
 --- SOURCE FUNCTIONS ---
@@ -86,9 +113,10 @@ nodeLink2 streamOp inputPort1 inputPort2 outputHost outputPort = do
 nodeSource :: ToJSON beta => IO alpha -> (Stream alpha -> Stream beta) -> HostName -> PortNumber -> IO ()
 nodeSource pay streamGraph host port = do
     putStrLn "Starting source ..."
-    stream <- readListFromSource pay
+    metrics <- startPrometheus "striot-source"
+    stream <- readListFromSource pay metrics
     let result = streamGraph stream
-    sendStreamC result host port -- or printStream if it's a completely self contained streamGraph
+    sendStreamC metrics result host port -- or printStream if it's a completely self contained streamGraph
 
 
 --- LINK FUNCTIONS - AcitveMQ ---
@@ -97,10 +125,10 @@ nodeSource pay streamGraph host port = do
 nodeLinkMqtt :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> String -> HostName -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLinkMqtt streamOp podName inputHost inputPort outputHost outputPort = do
     putStrLn "Starting link ..."
-    hFlush stdout
-    stream <- processSocketMqtt podName inputHost inputPort
+    metrics <- startPrometheus podName
+    stream <- processSocketMqtt metrics podName inputHost inputPort
     let result = streamOp stream
-    sendStreamC result outputHost outputPort
+    sendStreamC metrics result outputHost outputPort
 
 
 --- SOURCE FUNCTIONS - ActiveMQ ---
@@ -109,20 +137,22 @@ nodeLinkMqtt streamOp podName inputHost inputPort outputHost outputPort = do
 nodeSourceMqtt :: ToJSON beta => IO alpha -> (Stream alpha -> Stream beta) -> String -> HostName -> PortNumber -> IO ()
 nodeSourceMqtt pay streamGraph podName host port = do
     putStrLn "Starting source ..."
-    stream <- readListFromSource pay
+    metrics <- startPrometheus podName
+    stream <- readListFromSource pay metrics
     let result = streamGraph stream
-    sendStreamMqttC result podName host port
+    sendStreamMqttC metrics result podName host port
 
 
 --- UTILITY FUNCTIONS ---
 
 
-readListFromSource :: IO alpha -> IO (Stream alpha)
+readListFromSource :: IO alpha -> Metrics -> IO (Stream alpha)
 readListFromSource = go 0
   where
-    go i pay = unsafeInterleaveIO $ do
+    go i pay met = unsafeInterleaveIO $ do
         x  <- msg i
-        xs <- go (i + 1) pay    -- This will overflow eventually
+        xs <- go (i + 1) pay met    -- This will overflow eventually
+        PC.inc $ _ingressEvents met
         return (x : xs)
       where
         msg x = do
@@ -132,35 +162,45 @@ readListFromSource = go 0
 
 {- Handler to receive a lazy list of Events from the socket, where the
 events are read from the socket one by one in constant memory -}
-processSocketC :: FromJSON alpha => PortNumber -> IO (Stream alpha)
-processSocketC inputPort = U.getChanContents =<< acceptConnectionsC inputPort
+processSocketC :: FromJSON alpha => Metrics -> PortNumber -> IO (Stream alpha)
+processSocketC metrics inputPort = U.getChanContents =<< acceptConnectionsC metrics inputPort
 
 
 {- Reads from source node, parses, deserialises, and writes to the channel,
 without introducing laziness -}
-acceptConnectionsC :: FromJSON alpha => PortNumber -> IO (U.OutChan (Event alpha))
-acceptConnectionsC port = do
+acceptConnectionsC :: FromJSON alpha => Metrics -> PortNumber -> IO (U.OutChan (Event alpha))
+acceptConnectionsC met port = do
     (inChan, outChan) <- U.newChan chanSize
     async $
         runTCPServer (serverSettings port "*") $ \source ->
           runConduit
-          $ appSource source
-         .| parseEvents
-         .| deserialise
-         .| mapM_C (U.writeChan inChan)
+              $ appSource source
+             .| parseEvents
+             .| iterMC (\x -> PC.add (BC.length x) (_ingressBytes met)
+                           >> PC.inc (_ingressEvents met))
+             .| deserialise
+             .| mapM_C (U.writeChan inChan)
     return outChan
 
 
 {- Send stream to downstream one event at a time -}
-sendStreamC :: ToJSON alpha => Stream alpha -> HostName -> PortNumber -> IO ()
-sendStreamC []     _    _    = return ()
-sendStreamC stream host port =
-    runTCPClient (clientSettings port (BC.pack host)) $ \sink ->
+sendStreamC :: ToJSON alpha => Metrics -> Stream alpha -> HostName -> PortNumber -> IO ()
+sendStreamC _   []     _    _    = return ()
+sendStreamC met stream host port =
+    runTCPClient (clientSettings port (BC.pack host)) $ \sink -> do
+        PG.inc $ _egressConn met
         runConduit
-      $ yieldMany stream
-     .| serialise
-     .| mapC (`BC.snoc` eventTerminationChar)
-     .| appSink sink
+          $ yieldMany stream
+         .| serialise
+         .| mapC (`BC.snoc` eventTerminationChar)
+         .| iterMC (\x -> PC.add (BC.length x) (_egressBytes met)
+                       >> PC.inc (_egressEvents met))
+         .| appSink sink
+
+
+
+-- passthroughMetrics :: MonadIO m => (i -> m ()) -> ConduitT i o m ()
+-- passthroughMetrics fn = awaitForever (\x)
 
 
 {- Conduit to serialise with aeson -}
@@ -208,11 +248,29 @@ higher throughput when computation costs are low -}
 chanSize :: Int
 chanSize = 10
 
+--- PROMETHEUS ---
+
+startPrometheus :: String -> IO Metrics
+startPrometheus nodeName = do
+    reg <- PR.new
+    ingressConn   <- PR.registerGauge   "striot_ingress_connection"   mempty reg
+    ingressBytes  <- PR.registerCounter "striot_ingress_bytes_total"  mempty reg
+    ingressEvents <- PR.registerCounter "striot_ingress_events_total" mempty reg
+    egressConn    <- PR.registerGauge   "striot_egress_connection"    mempty reg
+    egressBytes   <- PR.registerCounter "striot_egress_bytes_total"   mempty reg
+    egressEvents  <- PR.registerCounter "striot_egress_events_total"  mempty reg
+    async $ serveHttpTextMetrics 8080 ["metrics"] (PR.sample reg)
+    return Metrics { _ingressConn   = ingressConn
+                   , _ingressBytes  = ingressBytes
+                   , _ingressEvents = ingressEvents
+                   , _egressConn    = egressConn
+                   , _egressBytes   = egressBytes
+                   , _egressEvents  = egressEvents }
 
 --- AMQ MQTT ---
 
-processSocketMqtt :: FromJSON alpha => String -> HostName -> PortNumber -> IO (Stream alpha)
-processSocketMqtt podName host port = U.getChanContents =<< acceptConnectionsMqtt podName host port
+processSocketMqtt :: FromJSON alpha => Metrics -> String -> HostName -> PortNumber -> IO (Stream alpha)
+processSocketMqtt met podName host port = U.getChanContents =<< acceptConnectionsMqtt podName host port
 
 
 acceptConnectionsMqtt :: FromJSON alpha => String -> HostName -> PortNumber -> IO (U.OutChan (Event alpha))
@@ -222,28 +280,36 @@ acceptConnectionsMqtt podName host port = do
     -- async $ runMqttSub podName host port inChan
     return outChan
 
-sendStreamMqttC :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
-sendStreamMqttC stream podName host port = do
+sendStreamMqttC :: ToJSON alpha => Metrics -> Stream alpha -> String -> HostName -> PortNumber -> IO ()
+sendStreamMqttC met stream podName host port = do
     mc <- runMqttPub podName host port
+    PG.inc $ _egressConn met
     runConduit
         $ yieldMany stream
        .| mapMC (evaluate . force . encode)
-       .| mapM_C (\x -> publishq mc (head netmqttTopics) x False QoS0)
+       .| mapM_C (\x -> do
+           PC.add (fromIntegral $ BLC.length x) (_egressBytes met)
+           PC.inc (_egressEvents met)
+           publishq mc (head netmqttTopics) x False QoS0)
 
 
-sendStreamMqttMultiC :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
-sendStreamMqttMultiC stream podName host port = do
+sendStreamMqttMultiC :: ToJSON alpha => Metrics -> Stream alpha -> String -> HostName -> PortNumber -> IO ()
+sendStreamMqttMultiC met stream podName host port = do
     (inChan, outChan) <- U.newChan chanSize
     mapM_ (\x ->
         async $ do
             mc <- runMqttPub (podName++show x) host port
+            PG.inc $ _egressConn met
             runConduit
                 $ sourceUChanYield outChan
                .| mapM_C (\x -> publishq mc (head netmqttTopics) x False QoS0)) [1..numThreads]
     runConduit
         $ yieldMany stream
        .| mapMC (evaluate . force . encode)
-       .| mapM_C (U.writeChan inChan)
+       .| mapM_C (\x -> do
+           PC.add (fromIntegral $ BLC.length x) (_egressBytes met)
+           PC.inc (_egressEvents met)
+           U.writeChan inChan x)
 
 
 numThreads :: Int
