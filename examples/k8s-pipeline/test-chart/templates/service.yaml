@@ -6,7 +6,7 @@ metadata:
 #    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
   labels:
     app: {{ .Values.image.repository.name }}
-    all: {{ .Values.striot }}
+    striot: {{ .Values.striot }}
     chart: {{ template "test-chart.chart" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
