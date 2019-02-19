@@ -10,11 +10,18 @@ metadata:
     chart: {{ template "test-chart.chart" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
+  annotations:
+    prometheus.io/scrape: 'true'
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.service.port }}
+    - name: striot
+      port: {{ .Values.service.port }}
       protocol: TCP
+    - name: web
+      protocol: TCP
+      port: 8080
+      targetPort: web
   selector:
     app: {{ .Values.image.repository.name }}
     release: {{ .Release.Name }}

@@ -18,6 +18,7 @@ spec:
     metadata:
       labels:
         app: {{ .Values.image.repository.name }}
+        striot: {{ .Values.striot }}
         release: {{ .Release.Name }}
     spec:
       containers:
@@ -26,6 +27,9 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 9001
+              protocol: TCP
+            - name: web
+              containerPort: 8080
               protocol: TCP
           env:
             - name: "AMQ_BROKER_SERVICE_HOST"

@@ -1,4 +1,4 @@
-apiVersion: monitoring.coreos.com/v1alpha1
+apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: striot
@@ -9,5 +9,5 @@ spec:
     matchLabels:
       striot: monitor
   endpoints:
-  - port: 8080            # works for different port numbers as long as the name matches
-    interval: 10s        # scrape the endpoint every 10 seconds
+  - port: web            # works for different port numbers as long as the name matches
+    interval: 1s         # scrape every 1s

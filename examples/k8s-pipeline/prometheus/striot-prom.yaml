@@ -1,14 +1,11 @@
-apiVersion: monitoring.coreos.com/v1alpha1
+apiVersion: monitoring.coreos.com/v1
 kind: Prometheus
 metadata:
   name: prometheus-striot
   labels:
-    prometheus: striot
+    prometheus: prometheus
 spec:
-  version: v1.3.0
-  # Define that all ServiceMonitor TPRs with the label `striot = monitor` should be included
-  # into the server's configuration.
-  serviceMonitors:
-  - selector:
-      matchLabels:
+  serviceAccountName: prometheus
+  serviceMonitorSelector:
+    matchLabels:
         striot: monitor

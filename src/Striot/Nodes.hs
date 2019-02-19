@@ -70,7 +70,6 @@ nodeSink :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> (S
 nodeSink streamOp iofn inputPort = do
     putStrLn "Starting server ..."
     metrics <- startPrometheus "striot-sink"
-    putStrLn "Started metrics..."
     stream <- processSocketC metrics inputPort
     let result = streamOp stream
     iofn result
