@@ -15,11 +15,11 @@ module Striot.Nodes ( nodeSink
 
 import           Conduit                               hiding (connect)
 import           Control.Concurrent                    hiding (yield)
-import           Control.Concurrent.Async              (concurrently, async)
+import           Control.Concurrent.Async              (async, concurrently)
 import qualified Control.Concurrent.Chan.Unagi.Bounded as U
 import           Control.Concurrent.STM
-import           Control.DeepSeq
-import           Control.Exception
+import           Control.DeepSeq                       (force)
+import           Control.Exception                     (evaluate)
 import           Control.Monad                         (forever, liftM2, void,
                                                         when)
 import           Data.Aeson
@@ -32,8 +32,8 @@ import qualified Data.Conduit.Text                     as CT
 import           Data.Maybe
 import qualified Data.Text                             as T
 import           Data.Time                             (getCurrentTime)
-import           Network.MQTT.Client
 import qualified Network.MQTT                          as MQTT
+import           Network.MQTT.Client
 import           Striot.FunctionalIoTtypes
 import           System.Exit                           (exitFailure)
 import           System.IO

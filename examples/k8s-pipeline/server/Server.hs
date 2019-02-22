@@ -1,25 +1,25 @@
 import           Conduit
-import           Data.List
-import           Data.List.Split
-import           Data.Maybe
-import           System.IO
-import           System.IO.Unsafe            (unsafeInterleaveIO)
-
-import           Striot.FunctionalIoTtypes
-import           Striot.FunctionalProcessing
-import           Striot.Nodes
-import           Taxi
-
-import           Conduit
 import           Control.Concurrent.Async    (async)
 import           Control.Concurrent.STM
+import           Control.DeepSeq             (force)
+import           Control.Exception           (evaluate)
 import           Control.Monad               (when)
 import           Data.Aeson
 import qualified Data.ByteString.Char8       as BC (snoc)
-import qualified Data.ByteString.Lazy.Char8  as BLC (hPutStrLn, toStrict)
+import qualified Data.ByteString.Lazy.Char8  as BLC (ByteString, hPutStrLn,
+                                                     toStrict)
+import           Data.List
+import           Data.List.Split
+import           Data.Maybe
 import qualified Data.Text                   as T
 import           Data.Time                   (getCurrentTime)
 import           Data.Time.Clock             (UTCTime)
+import           Striot.FunctionalIoTtypes
+import           Striot.FunctionalProcessing
+import           Striot.Nodes
+import           System.IO
+import           System.IO.Unsafe            (unsafeInterleaveIO)
+import           Taxi
 
 
 listenPort = 9001 :: Int
@@ -76,7 +76,7 @@ streamGraphFn n1 = let
     in n3
 
 
-sinkToChan :: (ToJSON alpha) => TChan (Event (alpha, UTCTime)) -> Stream alpha -> IO ()
+sinkToChan :: (ToJSON alpha) => TChan BLC.ByteString -> Stream alpha -> IO ()
 sinkToChan chan stream =
     runConduit
         $ yieldMany stream
@@ -84,14 +84,15 @@ sinkToChan chan stream =
                 now <- getCurrentTime
                 return x { value = Just (v, now) }
                 )
+       .| mapMC (evaluate . force . encode)
        .| mapM_C (atomically . writeTChan chan)
 
 
-writeToFile :: (ToJSON alpha) => String -> TChan (Event (alpha, UTCTime)) -> IO ()
+writeToFile :: String -> TChan BLC.ByteString -> IO ()
 writeToFile fName chan =
     runConduitRes
         $ sourceTChanYield chan
-       .| mapC ((`BC.snoc` '\n') . BLC.toStrict . encode)
+       .| mapC ((`BC.snoc` '\n') . BLC.toStrict)
        .| sinkFile fName
 
 
