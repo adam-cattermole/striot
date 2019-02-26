@@ -112,7 +112,7 @@ writeToFile' fName chan =
 
 writeToFile'' :: Handle -> TChan BLC.ByteString -> IO ()
 writeToFile'' hdl chan = forever $ do
-    BLC.hPutStrLn hdl =<< (atomically . readTChan chan)
+    BLC.hPutStrLn hdl =<< (atomically . readTChan $ chan)
     hFlush hdl
 
 sourceTChanYield :: MonadIO m => TChan a -> ConduitT i a m ()

@@ -49,8 +49,13 @@ tripParse e@(Event eid _ (Just v)) =
           , time    = Just $ dropoffDatetime t
           , value   = Just t }
 
--- src1 :: IO Trip
-src1 = stringsToTrip . S.splitOn "," <$> getLine
+src1 :: IO Trip
+src1 = loop
+    where loop = do
+            done <- isEOF
+            if done
+            then loop
+            else stringsToTrip . S.splitOn "," <$> getLine
 
 streamGraphFn :: Stream Trip -> Stream (Int,[Journey])
 streamGraphFn n1 = let

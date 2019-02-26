@@ -27,7 +27,7 @@ library
                     , split             >= 0.2
                     , time              >= 1.6
                     , HTF
-                    -- , network           >= 2.6.0.0
+                    , network           >= 2.6.0.0
                     , aeson             >= 1.4.2.0
                     , bytestring        >= 0.9.2
                     , unagi-chan        >= 0.4.1.0
@@ -55,7 +55,7 @@ test-suite test-striot
                     , split             >= 0.2
                     , time              >= 1.6
                     , HTF
-                    -- , network           >= 2.6.0.0
+                    , network           >= 2.6.0.0
                     , aeson             >= 1.4.2.0
                     , bytestring        >= 0.9.2
                     , unagi-chan        >= 0.4.1.0

@@ -28,6 +28,7 @@ import qualified Data.ByteString                       as B
 import qualified Data.ByteString.Char8                 as BC
 import qualified Data.ByteString.Lazy.Char8            as BLC
 import           Data.Conduit.Network
+import qualified Network.Socket                        as S
 import qualified Data.Conduit.Text                     as CT
 import           Data.Maybe
 import qualified Data.Text                             as T
@@ -47,7 +48,9 @@ type PortNumber = Int
 nodeSink :: (FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> (Stream beta -> IO ()) -> PortNumber -> IO ()
 nodeSink streamOp iofn inputPort = do
     putStrLn "Starting server ..."
-    stream <- processSocketC inputPort
+    sock <- listenSocket (show inputPort)
+    stream <- processSocket sock
+    -- stream <- processSocketC inputPort
     let result = streamOp stream
     iofn result
 
@@ -66,9 +69,11 @@ nodeSink2 streamOp iofn inputPort1 inputPort2 =do
 nodeLink :: (Show alpha, FromJSON alpha, ToJSON beta) => (Stream alpha -> Stream beta) -> PortNumber -> HostName -> PortNumber -> IO ()
 nodeLink streamOp inputPort outputHost outputPort = do
     putStrLn "Starting link ..."
-    stream <- processSocketC inputPort
+    sock <- listenSocket (show inputPort)
+    stream <- processSocket sock
+    -- stream <- processSocketC inputPort
     let result = streamOp stream
-    sendStreamC result outputHost outputPort
+    sendStream result outputHost outputPort
 
 
 -- A Link with 2 inputs
@@ -88,7 +93,7 @@ nodeSource pay streamGraph host port = do
     putStrLn "Starting source ..."
     stream <- readListFromSource pay
     let result = streamGraph stream
-    sendStreamC result host port -- or printStream if it's a completely self contained streamGraph
+    sendStream result host port -- or printStream if it's a completely self contained streamGraph
 
 
 --- LINK FUNCTIONS - AcitveMQ ---
@@ -100,7 +105,7 @@ nodeLinkMqtt streamOp podName inputHost inputPort outputHost outputPort = do
     hFlush stdout
     stream <- processSocketMqtt podName inputHost inputPort
     let result = streamOp stream
-    sendStreamC result outputHost outputPort
+    sendStream result outputHost outputPort
 
 
 --- SOURCE FUNCTIONS - ActiveMQ ---
@@ -150,6 +155,14 @@ acceptConnectionsC port = do
          .| mapM_C (U.writeChan inChan)
     return outChan
 
+
+sendStream :: ToJSON alpha => Stream alpha -> HostName -> PortNumber -> IO ()
+sendStream []     _    _    = return ()
+sendStream stream host port = do
+    sock <- connectSocket host (show port)
+    handle <- S.socketToHandle sock ReadWriteMode
+    -- putStrLn "Open output connection"
+    hPutLines' handle stream
 
 {- Send stream to downstream one event at a time -}
 sendStreamC :: ToJSON alpha => Stream alpha -> HostName -> PortNumber -> IO ()
@@ -221,6 +234,48 @@ acceptConnectionsMqtt podName host port = do
     async $ runMqttSub (T.pack podName) mqttTopics host port inChan
     -- async $ runMqttSub podName host port inChan
     return outChan
+
+sendStreamMqtt :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
+sendStreamMqtt stream podName host port = do
+    mc <- runMqttPub podName host port
+    mapM_ (\x -> do
+                val <- evaluate . force . encode $ x
+                publishq mc (head netmqttTopics) val False QoS0) stream
+
+sendStreamMqtt' :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
+sendStreamMqtt' stream podName host port = do
+    (conf, _) <- mqttConf (T.pack podName) host port
+    async $ runMqtt' (return ()) conf
+    mapM_ (\x -> do
+                val <- evaluate . force . encode $ x
+                MQTT.publish conf MQTT.NoConfirm False (head mqttTopics) $ BLC.toStrict val) stream
+
+
+sendStreamMqttMulti :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
+sendStreamMqttMulti stream podName host port = do
+    (inChan, outChan) <- U.newChan chanSize
+    mapM_ (\x ->
+        async $ do
+            mc <- runMqttPub (podName++show x) host port
+            vals <- U.getChanContents outChan
+            mapM_ (\x -> do
+                        val <- evaluate . force . encode $ x
+                        publishq mc (head netmqttTopics) val False QoS0) vals) [1..numThreads]
+    U.writeList2Chan inChan stream
+
+sendStreamMqttMulti' :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
+sendStreamMqttMulti' stream podName host port = do
+    (inChan, outChan) <- U.newChan chanSize
+    mapM_ (\x ->
+        async $ do
+            (conf, _) <- mqttConf (T.pack $ podName ++ show x) host port
+            async $ runMqtt' (return ()) conf
+            vals <- U.getChanContents outChan
+            mapM_ (\x -> do
+                        val <- evaluate . force . encode $ x
+                        MQTT.publish conf MQTT.NoConfirm False (head mqttTopics) $ BLC.toStrict val) vals) [1..numThreads]
+    U.writeList2Chan inChan stream
+
 
 sendStreamMqttC :: ToJSON alpha => Stream alpha -> String -> HostName -> PortNumber -> IO ()
 sendStreamMqttC stream podName host port = do
@@ -296,10 +351,29 @@ runMqttSub :: FromJSON alpha => T.Text -> [MQTT.Topic] -> HostName -> PortNumber
 runMqttSub podName topics host port ch = do
     (conf, pubChan) <- mqttConf podName host port
     async $ runMqtt' (mqttSub conf pubChan topics) conf
+    byteStream <- map (MQTT.payload . MQTT.body) <$> getChanLazy pubChan
+    U.writeList2Chan ch $ mapMaybe decodeStrict byteStream
+    -- U.writeList2Chan ch =<< mapMaybe decodeStrict $ getChanLazy pubChan
+
+
+getChanLazy :: TChan a -> IO [a]
+getChanLazy ch = unsafeInterleaveIO (do
+                            x  <- unsafeInterleaveIO $ atomically . readTChan $ ch
+                            xs <- getChanLazy ch
+                            return (x:xs)
+                        )
+
+
+runMqttSubC :: FromJSON alpha => T.Text -> [MQTT.Topic] -> HostName -> PortNumber -> U.InChan (Event alpha) -> IO ()
+runMqttSubC podName topics host port ch = do
+    (conf, pubChan) <- mqttConf podName host port
+    async $ runMqtt' (mqttSub conf pubChan topics) conf
     runConduit
         $ sourceTChanYield pubChan
        .| deserialise
        .| mapM_C (U.writeChan ch)
+
+
 
 
 sourceTChanYield :: MonadIO m => TChan (MQTT.Message 'MQTT.PUBLISH) -> ConduitT i BC.ByteString m ()
@@ -390,3 +464,109 @@ mqttSub conf pubChan topics = do
 --     --     print x
 --     let publish x = MQTT.publish conf MQTT.NoConfirm True (head mqttTopics) $ BLC.toStrict . encode $ x
 --     mapM_ publish stream
+
+-- Old connection stuff
+
+{- processSocket is a wrapper function that handles concurrently
+accepting and handling connections on the socket and reading all of the strings
+into an event Stream -}
+processSocket :: FromJSON alpha => S.Socket -> IO (Stream alpha)
+processSocket sock = U.getChanContents =<< acceptConnections sock
+
+
+{- acceptConnections takes a socket as an argument and spins up a new thread to
+process the data received. The returned TChan object contains the data from
+the socket -}
+acceptConnections :: FromJSON alpha => S.Socket -> IO (U.OutChan (Event alpha))
+acceptConnections sock = do
+    (inChan, outChan) <- U.newChan chanSize
+    async $ connectionHandler sock inChan
+    return outChan
+
+
+{- connectionHandler sits accepting any new connections. Once
+accepted, it is converted to a handle and a new thread is forked to handle all
+reading. The function then loops to accept a new connection. forkFinally is used
+to ensure the thread closes the handle before it exits -}
+connectionHandler :: FromJSON alpha => S.Socket -> U.InChan (Event alpha) -> IO ()
+connectionHandler sockIn eventChan = forever $ do
+    -- putStrLn "Awaiting new connection"
+    (sock, _) <- S.accept sockIn
+    hdl <- S.socketToHandle sock ReadWriteMode
+    -- putStrLn "Forking to process new connection"
+    forkFinally (processHandle hdl eventChan) (\_ -> hClose hdl)
+
+
+{- processHandle takes a Handle and TChan. All of the events are read through
+hGetLines' with the IO deferred lazily. The string list is mapped to a Stream
+and passed to writeEventsTChan -}
+processHandle :: FromJSON alpha => Handle -> U.InChan (Event alpha) -> IO ()
+processHandle handle eventChan = do
+    byteStream <- hGetLines' handle
+    U.writeList2Chan eventChan $ mapMaybe decodeStrict byteStream
+
+
+{- hGetLines' creates a list of Strings from a Handle, where the IO computation
+is deferred lazily until the values are requested -}
+hGetLines' :: Handle -> IO [B.ByteString]
+hGetLines' handle = System.IO.Unsafe.unsafeInterleaveIO $ do
+    readable <- hIsReadable handle
+    eof      <- hIsEOF handle
+    if not eof && readable
+        then do
+            x  <- B.hGetLine handle
+            xs <- hGetLines' handle
+            -- BC.putStrLn x
+            return (x : xs)
+        else return []
+
+hPutLines' :: ToJSON alpha => Handle -> Stream alpha -> IO ()
+hPutLines' handle [] = do
+    hClose handle
+    -- putStrLn "Closed output handle"
+    return ()
+hPutLines' handle (x:xs) = do
+    writeable <- hIsWritable handle
+    open      <- hIsOpen handle
+    when (open && writeable) $ do
+        -- BLC.putStrLn (encode x)
+        BLC.hPutStrLn    handle (encode x)
+        hPutLines' handle xs
+
+--- SOCKETS ---
+
+
+listenSocket :: S.ServiceName -> IO S.Socket
+listenSocket port = do
+    let hints = S.defaultHints { S.addrFlags = [S.AI_PASSIVE],
+                               S.addrSocketType = S.Stream }
+    (sock, addr) <- createSocket [] port hints
+    S.setSocketOption sock S.ReuseAddr 1
+    S.bind sock $ S.addrAddress addr
+    S.listen sock maxQConn
+    return sock
+    where maxQConn = 10
+
+
+connectSocket :: S.HostName -> S.ServiceName -> IO S.Socket
+connectSocket host port = do
+    let hints = S.defaultHints { S.addrSocketType = S.Stream }
+    (sock, addr) <- createSocket host port hints
+    S.setSocketOption sock S.KeepAlive 1
+    S.connect sock $ S.addrAddress addr
+    return sock
+
+
+createSocket :: S.HostName -> S.ServiceName -> S.AddrInfo -> IO (S.Socket, S.AddrInfo)
+createSocket host port hints = do
+    addr <- resolve host port hints
+    sock <- getSocket addr
+    return (sock, addr)
+  where
+    resolve host port hints = do
+        addr:_ <- S.getAddrInfo (Just hints) (isHost host) (Just port)
+        return addr
+    getSocket addr = S.socket (S.addrFamily addr) (S.addrSocketType addr) (S.addrProtocol addr)
+    isHost h
+        | null h    = Nothing
+        | otherwise = Just h
