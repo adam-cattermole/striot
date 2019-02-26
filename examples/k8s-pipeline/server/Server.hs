@@ -3,7 +3,7 @@ import           Control.Concurrent.Async    (async)
 import           Control.Concurrent.STM
 import           Control.DeepSeq             (force)
 import           Control.Exception           (evaluate)
-import           Control.Monad               (when)
+import           Control.Monad               (when, forever)
 import           Data.Aeson
 import qualified Data.ByteString.Char8       as BC (snoc)
 import qualified Data.ByteString.Lazy.Char8  as BLC (ByteString, hPutStrLn,
@@ -30,9 +30,14 @@ main :: IO ()
 main = do
     chan <- newTChanIO
     writeFile fileName ""
-    async $ writeToFile fileName chan
-    nodeSink streamGraphFn (sinkToChan chan) listenPort
+    hdl <- openFile fileName WriteMode
+    hSetBuffering hdl NoBuffering
+    async $ writeToFile'' hdl chan
+    nodeSink streamGraphid' (sinkToChan chan) listenPort
 
+
+printFromChan :: Show a => TChan a -> IO ()
+printFromChan chan = forever $ print =<< (atomically . readTChan $ chan)
 
 type OrderAcc alpha = (Int, [alpha], [(Int, alpha)])
 
@@ -65,6 +70,9 @@ processResults nextSeq restOfSeq res@((j,k):r)  | nextSeq == j = processResults 
                                                 | otherwise    = (nextSeq,restOfSeq,res)
 
 
+streamGraphid' :: Stream String -> Stream String
+streamGraphid' = Prelude.id
+
 streamGraphid :: Stream ((UTCTime,UTCTime),[(Journey,Int)]) -> Stream ((UTCTime,UTCTime),[(Journey,Int)])
 streamGraphid = streamMap Prelude.id
 
@@ -88,13 +96,24 @@ sinkToChan chan stream =
        .| mapM_C (atomically . writeTChan chan)
 
 
-writeToFile :: String -> TChan BLC.ByteString -> IO ()
-writeToFile fName chan =
+writeToFile :: Handle -> TChan BLC.ByteString -> IO ()
+writeToFile hdl chan =
+    runConduitRes
+        $ sourceTChanYield chan
+       .| mapC ((`BC.snoc` '\n') . BLC.toStrict)
+       .| sinkHandle hdl
+
+writeToFile' :: String -> TChan BLC.ByteString -> IO ()
+writeToFile' fName chan =
     runConduitRes
         $ sourceTChanYield chan
        .| mapC ((`BC.snoc` '\n') . BLC.toStrict)
        .| sinkFile fName
 
+writeToFile'' :: Handle -> TChan BLC.ByteString -> IO ()
+writeToFile'' hdl chan = forever $ do
+    BLC.hPutStrLn hdl =<< (atomically . readTChan chan)
+    hFlush hdl
 
 sourceTChanYield :: MonadIO m => TChan a -> ConduitT i a m ()
 sourceTChanYield ch = loop

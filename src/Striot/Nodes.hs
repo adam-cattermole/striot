@@ -19,7 +19,7 @@ import           Control.Concurrent.Async              (async, concurrently)
 import qualified Control.Concurrent.Chan.Unagi.Bounded as U
 import           Control.Concurrent.STM
 import           Control.DeepSeq                       (force)
-import           Control.Exception                     (evaluate)
+import           Control.Exception                     (evaluate, catch)
 import           Control.Monad                         (forever, liftM2, void,
                                                         when)
 import           Data.Aeson
@@ -239,10 +239,11 @@ sendStreamMqttMultiC stream podName host port = do
             mc <- runMqttPub (podName++show x) host port
             runConduit
                 $ sourceUChanYield outChan
+               .| mapMC (evaluate . force . encode)
                .| mapM_C (\x -> publishq mc (head netmqttTopics) x False QoS0)) [1..numThreads]
     runConduit
         $ yieldMany stream
-       .| mapMC (evaluate . force . encode)
+       -- .| mapMC (evaluate . force . encode)
        .| mapM_C (U.writeChan inChan)
 
 
