@@ -1,5 +1,5 @@
 # Run from a pre-built Haskell container
-FROM haskell:8.4
+FROM haskell:8.6
 
 RUN apt-get update && apt-get upgrade -y
 
@@ -12,12 +12,13 @@ WORKDIR /opt/striot
 # separately for HTF, as the image has a bootstrapping problem
 RUN git clone --branch for-k8s-qos0 https://github.com/adam-cattermole/mqtt-hs net-mqtt
 
-RUN cabal update && \
-    cabal install happy && \
-    cabal install . --only-dependencies ./net-mqtt --force-reinstalls
+RUN cabal v1-update && \
+    cabal v1-install happy && \
+    cabal v1-install . --only-dependencies ./net-mqtt --force-reinstalls
 
 # Copy over source code in a separate layer, ensuring above is cached if
 # cabal file does not change
 COPY striot/src /opt/striot/src
 
-RUN cabal install . ./net-mqtt
+RUN cabal v1-build && \
+    cabal v1-install . ./net-mqtt
