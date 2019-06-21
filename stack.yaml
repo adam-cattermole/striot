@@ -1,8 +1,15 @@
 resolver: lts-13.25
 packages:
 - .
+- ../net-mqtt
+- ../mqtt-hs
 extra-deps:
 - network-3.1.0.0
 - prometheus-2.1.2
 - store-streaming-0.1.0.0
 - unagi-chan-0.4.1.0
+- binary-0.8.6.0
+  #- simple-sendfile-0.2.28
+- socks-0.6.0
+- connection-0.3.0
+  #- warp-3.2.27
