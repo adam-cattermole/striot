@@ -10,6 +10,7 @@ module Striot.Nodes ( nodeSink
                     , nodeSourceMqtt
                     -- , nodeLinkAmq
                     , nodeLinkMqtt
+                    , nodeSourceKafka
                     ) where
 
 import           Conduit                                       hiding (connect)
@@ -58,6 +59,8 @@ import           System.Metrics.Prometheus.Metric.Counter      as PC (Counter,
 import           System.Metrics.Prometheus.Metric.Gauge        as PG (Gauge,
                                                                       dec, inc)
 import           System.Metrics.Prometheus.MetricId            (addLabel)
+import           Kafka.Producer
+
 
 -- type HostName   = String
 -- type PortNumber = Int
@@ -179,6 +182,17 @@ nodeSourceMqtt pay streamOp podName host port = do
     sendStreamMqtt result metrics podName host (read port)
 
 
+--- KAFKA ---
+
+nodeSourceKafka :: Store beta => IO alpha -> (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> IO ()
+nodeSourceKafka pay streamOp podName host port = do
+    metrics <- startPrometheus podName
+    putStrLn "Starting source ..."
+    stream <- readListFromSource pay metrics
+    let result = streamOp stream
+    sendStreamKafka result metrics podName host (read port)
+
+
 --- UTILITY FUNCTIONS ---
 
 readListFromSource :: IO alpha -> Metrics -> IO (Stream alpha)
@@ -193,6 +207,48 @@ readListFromSource = go 0
         msg x = do
             now     <- getCurrentTime
             Event x (Just now) . Just <$> pay
+
+
+--- KAFKA ---
+
+sendStreamKafka :: Store alpha => Stream alpha -> Metrics -> String -> HostName -> PortNumber -> IO ()
+sendStreamKafka stream met podName host port =
+    E.bracket mkProducer clProducer runHandler >>= print
+        where
+          producerProps = brokersList [BrokerAddress $ T.pack $ host ++ ":" ++ show port]
+                           <> logLevel KafkaLogDebug
+          mkProducer              = PG.inc (_egressConn met)
+                                    >> newProducer producerProps
+          clProducer (Left _)     = return ()
+          clProducer (Right prod) = PG.dec (_egressConn met)
+                                    >> closeProducer prod
+          runHandler (Left err)   = return $ Left err
+          runHandler (Right prod) = sendMessagesKafka prod stream met
+
+
+sendMessagesKafka :: Store alpha => KafkaProducer -> Stream alpha -> Metrics -> IO (Either KafkaError ())
+sendMessagesKafka prod stream met = do
+    mapM_ (\x -> do
+            val <- E.evaluate . force . encode $ x
+            PC.inc (_egressEvents met)
+                >> PC.add (B.length val) (_egressBytes met)
+                -- >> produceMessage prod (mkMessage Nothing (Just val))
+            err <- produceMessage prod (mkMessage Nothing (Just val))
+            return $ Left err
+          ) stream
+    return $ Right ()
+
+
+mkMessage :: Maybe B.ByteString -> Maybe B.ByteString -> ProducerRecord
+mkMessage k v = ProducerRecord
+                  { prTopic = kafkaTopic
+                  , prPartition = UnassignedPartition
+                  , prKey = k
+                  , prValue = v
+                  }
+
+kafkaTopic :: TopicName
+kafkaTopic = TopicName "StriotQueue"
 
 
 --- AMQ MQTT ---
@@ -314,10 +370,10 @@ runMqttSub podName topics host port ch = do
 mapRight :: (a -> Either c b) -> [a] -> [b]
 mapRight _ []     = []
 mapRight f (x:xs) =
- let rs = mapRight f xs in
- case f x of
-  Left _ -> rs
-  Right r  -> r:rs
+    let rs = mapRight f xs in
+    case f x of
+        Left _ -> rs
+        Right r  -> r:rs
 
 getChanLazy :: TChan a -> IO [a]
 getChanLazy ch = unsafeInterleaveIO (do
@@ -368,6 +424,8 @@ mqttSub conf pubChan topics = do
                 hPutStrLn stderr $ "Wanted QoS Handshake, got " ++ show qosGranted
                 exitFailure
     return ()
+
+-- Kafka
 
 
 -- Old connection stuff

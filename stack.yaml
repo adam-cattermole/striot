@@ -13,3 +13,4 @@ extra-deps:
 - socks-0.6.0
 - connection-0.3.0
   #- warp-3.2.27
+- hw-kafka-client-2.6.0
