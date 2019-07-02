@@ -243,24 +243,39 @@ sendMessagesKafka :: Store alpha => KafkaProducer -> Stream alpha -> Metrics -> 
 sendMessagesKafka prod stream met = do
     mapM_ (\x -> do
             let val = encode x
-            -- val <- E.evaluate . force . encode $ x
-            err <- produceMessage prod (mkMessage Nothing (Just val))
+            produceMessage prod (mkMessage Nothing (Just val))
             PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
-            return $ Left err
           ) stream
     return $ Right ()
 
--- (inChan, outChan) <- U.newChan chanSize
--- mapM_ (\x ->
---     async $ do
---         mc <- runMqttPub (podName++show x) host port
---         vals <- U.getChanContents outChan
---         mapM_ (\x -> let val = encode x
---                      in  PC.inc (_egressEvents met)
---                          >> PC.add (B.length val) (_egressBytes met)
---                          >> publishq mc (head netmqttTopics) (BLC.fromStrict val) False QoS0) vals) [1..numThreads]
--- U.writeList2Chan inChan stream
+
+sendStreamMultiKafka :: Store alpha => Stream alpha -> Metrics -> String -> HostName -> PortNumber -> IO ()
+sendStreamMultiKafka stream met podName host port = do
+    (inChan, outChan) <- U.newChan chanSize
+    mapM_ (\x ->
+            async $ E.bracket mkProducer clProducer (runHandler outChan) >>= print
+            ) [1..numThreads]
+    U.writeList2Chan inChan stream
+        where
+          mkProducer                   = PG.inc (_egressConn met)
+                                         >> newProducer (producerProps host port)
+          clProducer      (Left _)     = return ()
+          clProducer      (Right prod) = PG.dec (_egressConn met)
+                                         >> closeProducer prod
+          runHandler _    (Left err)   = return $ Left err
+          runHandler chan (Right prod) = sendMessagesMultiKafka prod chan met
+
+
+sendMessagesMultiKafka :: Store alpha => KafkaProducer -> U.OutChan (Event alpha) -> Metrics -> IO (Either KafkaError ())
+sendMessagesMultiKafka prod chan met = forever $ do
+    x <- U.readChan chan
+    let val = encode x
+    produceMessage prod (mkMessage Nothing (Just val))
+    PC.inc (_egressEvents met)
+        >> PC.add (B.length val) (_egressBytes met)
+    return $ Right ()
+
 
 mkMessage :: Maybe B.ByteString -> Maybe B.ByteString -> ProducerRecord
 mkMessage k v = ProducerRecord
@@ -269,6 +284,7 @@ mkMessage k v = ProducerRecord
                   , prKey = k
                   , prValue = v
                   }
+
 
 kafkaTopic :: TopicName
 kafkaTopic = TopicName "StriotQueue"
@@ -284,8 +300,8 @@ runKafkaConsumer met podName host port = do
     async $ E.bracket mkConsumer clConsumer (runHandler inChan)
     return outChan
     where
-      mkConsumer = PG.inc (_ingressConn met)
-                   >> newConsumer (consumerProps host port) consumerSub
+      mkConsumer                 = PG.inc (_ingressConn met)
+                                   >> newConsumer (consumerProps host port) consumerSub
       clConsumer      (Left err) = return ()
       clConsumer      (Right kc) = void $ closeConsumer kc
                                    >> PG.dec (_ingressConn met)
