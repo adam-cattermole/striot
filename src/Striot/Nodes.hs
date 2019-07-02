@@ -274,29 +274,36 @@ kafkaTopic = TopicName "StriotQueue"
 
 
 processSocketKafka :: Store alpha => Metrics -> String -> HostName -> PortNumber -> IO (Stream alpha)
-processSocketKafka met podName host port = U.getChanContents =<< runKafkaConsumer podName host port
+processSocketKafka met podName host port = U.getChanContents =<< runKafkaConsumer met podName host port
 
 
-runKafkaConsumer :: Store alpha => String -> HostName -> PortNumber -> IO (U.OutChan (Event alpha))
-runKafkaConsumer podName host port = do
+runKafkaConsumer :: Store alpha => Metrics -> String -> HostName -> PortNumber -> IO (U.OutChan (Event alpha))
+runKafkaConsumer met podName host port = do
     (inChan, outChan) <- U.newChan chanSize
     async $ E.bracket mkConsumer clConsumer (runHandler inChan)
     return outChan
     where
-      mkConsumer = newConsumer (consumerProps host port) consumerSub
+      mkConsumer = PG.inc (_ingressConn met)
+                   >> newConsumer (consumerProps host port) consumerSub
       clConsumer      (Left err) = return ()
       clConsumer      (Right kc) = void $ closeConsumer kc
+                                   >> PG.dec (_ingressConn met)
       runHandler _    (Left err) = return ()
-      runHandler chan (Right kc) = processKafkaMessages kc chan
+      runHandler chan (Right kc) = processKafkaMessages met kc chan
 
 
-processKafkaMessages :: Store alpha => KafkaConsumer -> U.InChan (Event alpha) -> IO ()
-processKafkaMessages kc chan = forever $ do
+processKafkaMessages :: Store alpha => Metrics -> KafkaConsumer -> U.InChan (Event alpha) -> IO ()
+processKafkaMessages met kc chan = forever $ do
     msg <- pollMessage kc (Timeout 50)
     either (\_ -> return ()) extractValue msg
       where
           extractValue m = maybe (return ()) writeRight (crValue m)
-          writeRight   v = either (\_ -> return ()) (U.writeChan chan) (decode v)
+          writeRight   v = either (\_ -> return ())
+                                  (\x -> do
+                                    PC.inc (_ingressEvents met)
+                                        >> PC.add (B.length v) (_ingressBytes met)
+                                    U.writeChan chan x)
+                                  (decode v)
 
 
 consumerProps :: HostName -> PortNumber -> ConsumerProperties
