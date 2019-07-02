@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Striot.Nodes ( nodeSink
                     , nodeSink2
@@ -11,6 +10,7 @@ module Striot.Nodes ( nodeSink
                     -- , nodeLinkAmq
                     , nodeLinkMqtt
                     , nodeSourceKafka
+                    , nodeLinkKafka
                     ) where
 
 import           Conduit                                       hiding (connect)
@@ -60,6 +60,7 @@ import           System.Metrics.Prometheus.Metric.Gauge        as PG (Gauge,
                                                                       dec, inc)
 import           System.Metrics.Prometheus.MetricId            (addLabel)
 import           Kafka.Producer
+import           Kafka.Consumer
 
 
 -- type HostName   = String
@@ -193,6 +194,15 @@ nodeSourceKafka pay streamOp podName host port = do
     sendStreamKafka result metrics podName host (read port)
 
 
+nodeLinkKafka :: (Store alpha, Store beta) => (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
+nodeLinkKafka streamOp podName inputHost inputPort outputHost outputPort = do
+    metrics <- startPrometheus podName
+    putStrLn "Starting link ..."
+    stream <- processSocketKafka metrics podName inputHost (read inputPort)
+    let result = streamOp stream
+    sendStream result metrics outputHost outputPort
+
+
 --- UTILITY FUNCTIONS ---
 
 readListFromSource :: IO alpha -> Metrics -> IO (Stream alpha)
@@ -215,10 +225,8 @@ sendStreamKafka :: Store alpha => Stream alpha -> Metrics -> String -> HostName 
 sendStreamKafka stream met podName host port =
     E.bracket mkProducer clProducer runHandler >>= print
         where
-          producerProps = brokersList [BrokerAddress $ T.pack $ host ++ ":" ++ show port]
-                           <> logLevel KafkaLogDebug
           mkProducer              = PG.inc (_egressConn met)
-                                    >> newProducer producerProps
+                                    >> newProducer (producerProps host port)
           clProducer (Left _)     = return ()
           clProducer (Right prod) = PG.dec (_egressConn met)
                                     >> closeProducer prod
@@ -226,18 +234,32 @@ sendStreamKafka stream met podName host port =
           runHandler (Right prod) = sendMessagesKafka prod stream met
 
 
+producerProps :: HostName -> PortNumber -> ProducerProperties
+producerProps host port =
+    Kafka.Producer.brokersList [BrokerAddress $ T.pack $ host ++ ":" ++ show port]
+       <> Kafka.Producer.logLevel KafkaLogDebug
+
 sendMessagesKafka :: Store alpha => KafkaProducer -> Stream alpha -> Metrics -> IO (Either KafkaError ())
 sendMessagesKafka prod stream met = do
     mapM_ (\x -> do
             val <- E.evaluate . force . encode $ x
             PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
-                -- >> produceMessage prod (mkMessage Nothing (Just val))
             err <- produceMessage prod (mkMessage Nothing (Just val))
             return $ Left err
           ) stream
     return $ Right ()
 
+-- (inChan, outChan) <- U.newChan chanSize
+-- mapM_ (\x ->
+--     async $ do
+--         mc <- runMqttPub (podName++show x) host port
+--         vals <- U.getChanContents outChan
+--         mapM_ (\x -> let val = encode x
+--                      in  PC.inc (_egressEvents met)
+--                          >> PC.add (B.length val) (_egressBytes met)
+--                          >> publishq mc (head netmqttTopics) (BLC.fromStrict val) False QoS0) vals) [1..numThreads]
+-- U.writeList2Chan inChan stream
 
 mkMessage :: Maybe B.ByteString -> Maybe B.ByteString -> ProducerRecord
 mkMessage k v = ProducerRecord
@@ -249,6 +271,45 @@ mkMessage k v = ProducerRecord
 
 kafkaTopic :: TopicName
 kafkaTopic = TopicName "StriotQueue"
+
+
+processSocketKafka :: Store alpha => Metrics -> String -> HostName -> PortNumber -> IO (Stream alpha)
+processSocketKafka met podName host port = U.getChanContents =<< runKafkaConsumer podName host port
+
+
+runKafkaConsumer :: Store alpha => String -> HostName -> PortNumber -> IO (U.OutChan (Event alpha))
+runKafkaConsumer podName host port = do
+    (inChan, outChan) <- U.newChan chanSize
+    async $ E.bracket mkConsumer clConsumer (runHandler inChan)
+    return outChan
+    where
+      mkConsumer = newConsumer (consumerProps host port) consumerSub
+      clConsumer      (Left err) = return ()
+      clConsumer      (Right kc) = void $ closeConsumer kc
+      runHandler _    (Left err) = return ()
+      runHandler chan (Right kc) = processKafkaMessages kc chan
+
+
+processKafkaMessages :: Store alpha => KafkaConsumer -> U.InChan (Event alpha) -> IO ()
+processKafkaMessages kc chan = forever $ do
+    msg <- pollMessage kc (Timeout 50)
+    either (\_ -> return ()) extractValue msg
+      where
+          extractValue m = maybe (return ()) writeRight (crValue m)
+          writeRight   v = either (\_ -> return ()) (U.writeChan chan) (decode v)
+
+
+consumerProps :: HostName -> PortNumber -> ConsumerProperties
+consumerProps host port =
+    Kafka.Consumer.brokersList [BrokerAddress $ T.pack $ host ++ ":" ++ show port]
+         <> groupId (ConsumerGroupId "consumer_example_group")
+         -- <> noAutoCommit
+         <> Kafka.Consumer.logLevel KafkaLogInfo
+
+
+consumerSub :: Subscription
+consumerSub = topics [kafkaTopic]
+           <> offsetReset Earliest
 
 
 --- AMQ MQTT ---
@@ -372,8 +433,8 @@ mapRight _ []     = []
 mapRight f (x:xs) =
     let rs = mapRight f xs in
     case f x of
-        Left _ -> rs
-        Right r  -> r:rs
+        Left  _ -> rs
+        Right r -> r:rs
 
 getChanLazy :: TChan a -> IO [a]
 getChanLazy ch = unsafeInterleaveIO (do
