@@ -242,10 +242,11 @@ producerProps host port =
 sendMessagesKafka :: Store alpha => KafkaProducer -> Stream alpha -> Metrics -> IO (Either KafkaError ())
 sendMessagesKafka prod stream met = do
     mapM_ (\x -> do
-            val <- E.evaluate . force . encode $ x
+            let val = encode x
+            -- val <- E.evaluate . force . encode $ x
+            err <- produceMessage prod (mkMessage Nothing (Just val))
             PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
-            err <- produceMessage prod (mkMessage Nothing (Just val))
             return $ Left err
           ) stream
     return $ Right ()
