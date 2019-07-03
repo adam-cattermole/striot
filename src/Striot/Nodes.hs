@@ -287,7 +287,7 @@ mkMessage k v = ProducerRecord
 
 
 kafkaTopic :: TopicName
-kafkaTopic = TopicName "StriotQueue"
+kafkaTopic = TopicName "striot-queue"
 
 
 processSocketKafka :: Store alpha => Metrics -> String -> HostName -> PortNumber -> IO (Stream alpha)
