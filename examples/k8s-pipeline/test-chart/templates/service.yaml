@@ -7,14 +7,18 @@ metadata:
   labels:
     app: {{ .Values.image.repository.name }}
     all: {{ .Values.striot }}
+    striot: monitor
     chart: {{ template "test-chart.chart" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.service.port }}
+    - name: striot
+      port: {{ .Values.service.port }}
       protocol: TCP
+    - name: {{ .Values.prometheus.name }}
+      port: {{ .Values.prometheus.port }}
   selector:
     app: {{ .Values.image.repository.name }}
     release: {{ .Release.Name }}

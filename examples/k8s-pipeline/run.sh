@@ -3,11 +3,15 @@ NORMAL="\\033[0;39m"
 RED="\\033[1;31m"
 BLUE="\\033[1;34m"
 
-PREFIX="adamcattermole"
+NAMESPACE=default
+
+USER="adamcattermole"
+PREFIX="striot"
 SINK="server"
 
 AMQ_BROKER="striot-artemis.eastus.cloudapp.azure.com"
 SINK_HOST="striot-sink.eastus.cloudapp.azure.com"
+KAFKA_HOST="my-cluster-kafka-bootstrap"
 
 RESULTS_DIR="output"
 
@@ -18,7 +22,7 @@ POD_COUNT="kubectl get pods --field-selector=status.phase=Running -o name | wc -
 set -e
 
 # declare -a dirs=("server" "client2" "gen-broker" "generator")
-declare -a dirs=("client2")
+declare -a dirs=("sink" "link" "source")
 
 build() {
     log "Creating docker containers..."
@@ -29,20 +33,27 @@ build() {
     fi
   fi
 
-  name=haskell-link
-  log $PREFIX/$name
-  docker build -t $PREFIX/$name client2/
-  docker push $PREFIX/$name:latest
+  declare -a names=()
+    for dir in "${dirs[@]}"
+    do
+      n=$PREFIX-$dir
+      names+=($n)
+      log $USER/$n
+      docker build -t $USER/$n $dir/
+      docker push $USER/$n:latest
 
-  log "Creating Kubernetes services..."
-  log $name
-  helm install -n $name \
-               --debug \
-               --set image.repository.prefix=$PREFIX \
-               --set image.repository.name=$name \
-               --set image.tag=latest \
-               --set amqBroker.host=$AMQ_BROKER \
-               --set sink.host=$SINK_HOST ./test-chart
+
+      log "Creating Kubernetes services..."
+      log $name
+      helm install -n $n \
+                   --debug \
+                   --set image.repository.prefix=$USER \
+                   --set image.repository.name=$n \
+                   --set image.tag=latest \
+                   --set amqBroker.host=$AMQ_BROKER \
+                   --set kafka.host=$KAFKA_HOST ./test-chart
+                   # --set sink.host=$SINK_HOST ./test-chart
+   done
 }
 
 
@@ -54,18 +65,29 @@ start() {
     replicas=1
   fi
 
-  pod_count=0
-  log "haskell-link (replicas:$replicas)"
-  kubectl scale deployment haskell-link --replicas=$replicas
-  ((pod_count+=$replicas))
-  pods_running $pod_count
+  log "$PREFIX-sink"
+  kubectl scale deployment $PREFIX-sink --replicas=1
+  pods_running 1 "app=$PREFIX-sink"
+
+  log "$PREFIX-link (replicas:$replicas)"
+  kubectl scale deployment $PREFIX-link --replicas=$replicas
+  pods_running $replicas "app=$PREFIX-link"
 }
 
 pods_running() {
-  while [[ $(eval $POD_COUNT) -ne $1 ]]; do
-    log "Pods not running yet..."
-    sleep 5
-  done
+    pod_eval="$(pod_count $2)"
+    while [[ $(eval $pod_eval) -ne $1 ]]; do
+      log "Pods not updated yet..."
+      sleep 5
+    done
+}
+
+pod_count() {
+    if [ -z ${1+x} ]; then
+        echo "oc get pods -n $NAMESPACE --field-selector=status.phase=Running -o name | wc -l"
+    else
+        echo "oc get pods -n $NAMESPACE -l $1 --field-selector=status.phase=Running -o name | wc -l"
+    fi
 }
 
 
@@ -100,7 +122,7 @@ pods_running() {
 stop() {
   log "Stopping pipeline..."
   # kubectl delete services,deployments -l name=haskell-server --now
-  name="haskell-link"
+  name="$PREFIX-link"
   log $name
   kubectl scale deployment $name --replicas=0
 }
@@ -124,9 +146,9 @@ clean() {
     if [[ -n $(helm list -q $name) ]]; then
       helm delete --purge $name
     fi
-    # if [[ -n $(docker images -q $PREFIX/$n) ]]; then
-    #   log $PREFIX/$n
-    #   docker rmi -f $PREFIX/$n
+    # if [[ -n $(docker images -q $USER/$n) ]]; then
+    #   log $USER/$n
+    #   docker rmi -f $USER/$n
     # fi
   done
 }

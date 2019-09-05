@@ -244,7 +244,7 @@ sendMessagesKafka prod stream met = do
     mapM_ (\x -> do
             let val = encode x
             produceMessage prod (mkMessage Nothing (Just val))
-            PC.inc (_egressEvents met)
+                >> PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
           ) stream
     return $ Right ()

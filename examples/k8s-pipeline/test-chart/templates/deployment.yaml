@@ -5,6 +5,7 @@ metadata:
   labels:
     app: {{ .Values.image.repository.name }}
     all: {{ .Values.striot }}
+    striot: monitor
     chart: {{ template "test-chart.chart" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
@@ -20,18 +21,37 @@ spec:
         app: {{ .Values.image.repository.name }}
         release: {{ .Release.Name }}
     spec:
+      {{- if eq .Release.Name "striot-link" }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - striot-link
+              topologyKey: "kubernetes.io/hostname"
+      {{- end }}
       containers:
         - name: {{ .Values.image.repository.name }}
           image: "{{ .Values.image.repository.prefix }}/{{ .Values.image.repository.name }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: 9001
+            - containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            - containerPort: {{ .Values.prometheus.port }}
+              name: {{ .Values.prometheus.name }}
               protocol: TCP
           env:
             - name: "AMQ_BROKER_SERVICE_HOST"
               value: {{ .Values.amqBroker.host }}
             - name: "HASKELL_SERVER_SERVICE_HOST"
               value: {{ .Values.sink.host }}
+            - name: "KAFKA_SERVICE_HOST"
+              value: {{ .Values.kafka.host }}
           # livenessProbe:
           #   httpGet:
           #     path: /

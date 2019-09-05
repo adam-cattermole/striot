@@ -48,3 +48,13 @@ affinity: {}
 
 amqBroker:
   host: ""
+
+kafka:
+  host: ""
+
+sink:
+  host: ""
+
+prometheus:
+  name: prom
+  port: 8080
