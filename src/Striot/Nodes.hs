@@ -87,7 +87,12 @@ nodeSink streamOp iofn inputPort = do
     putStrLn "Starting server ..."
     stream <- processSocket metrics sock
     let result = streamOp stream
-    iofn result
+    terribleIOfn metrics iofn result
+
+terribleIOfn :: Metrics -> (Stream alpha -> IO ()) -> Stream alpha -> IO ()
+terribleIOfn metrics f (e:stream) = f [e]
+    >> PC.inc (_egressEvents metrics)
+    >> terribleIOfn metrics f stream
 
 -- A Sink with 2 inputs
 nodeSink2 :: (Store alpha, Store beta, Store gamma)
