@@ -5,9 +5,7 @@ module Striot.Nodes ( nodeSink
                     , nodeLink
                     , nodeLink2
                     , nodeSource
-                    -- , nodeSourceAmq
                     , nodeSourceMqtt
-                    -- , nodeLinkAmq
                     , nodeLinkMqtt
                     , nodeSourceKafka
                     , nodeLinkKafka
@@ -168,10 +166,10 @@ nodeSource pay streamGraph host port = do
 
 
 nodeLinkMqtt :: (Store alpha, Store beta) => (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
-nodeLinkMqtt streamOp podName inputHost inputPort outputHost outputPort = do
-    metrics <- startPrometheus podName
+nodeLinkMqtt streamOp nodeName inputHost inputPort outputHost outputPort = do
+    metrics <- startPrometheus nodeName
     putStrLn "Starting link ..."
-    stream <- processSocketMqtt podName inputHost (read inputPort)
+    stream <- processSocketMqtt nodeName inputHost (read inputPort)
     let result = streamOp stream
     sendStream result metrics outputHost outputPort
 
@@ -180,30 +178,30 @@ nodeLinkMqtt streamOp podName inputHost inputPort outputHost outputPort = do
 
 
 nodeSourceMqtt :: Store beta => IO alpha -> (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> IO ()
-nodeSourceMqtt pay streamOp podName host port = do
-    metrics <- startPrometheus podName
+nodeSourceMqtt pay streamOp nodeName host port = do
+    metrics <- startPrometheus nodeName
     putStrLn "Starting source ..."
     stream <- readListFromSource pay metrics
     let result = streamOp stream
-    sendStreamMqtt result metrics podName host (read port)
+    sendStreamMqtt result metrics nodeName host (read port)
 
 
 --- KAFKA ---
 
 nodeSourceKafka :: Store beta => IO alpha -> (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> IO ()
-nodeSourceKafka pay streamOp podName host port = do
-    metrics <- startPrometheus podName
+nodeSourceKafka pay streamOp nodeName host port = do
+    metrics <- startPrometheus nodeName
     putStrLn "Starting source ..."
     stream <- readListFromSource pay metrics
     let result = streamOp stream
-    sendStreamKafka result metrics podName host (read port)
+    sendStreamKafka result metrics nodeName host (read port)
 
 
 nodeLinkKafka :: (Store alpha, Store beta) => (Stream alpha -> Stream beta) -> String -> HostName -> ServiceName -> HostName -> ServiceName -> IO ()
-nodeLinkKafka streamOp podName inputHost inputPort outputHost outputPort = do
-    metrics <- startPrometheus podName
+nodeLinkKafka streamOp nodeName inputHost inputPort outputHost outputPort = do
+    metrics <- startPrometheus nodeName
     putStrLn "Starting link ..."
-    stream <- processSocketKafka metrics podName inputHost (read inputPort)
+    stream <- processSocketKafka metrics nodeName inputHost (read inputPort)
     let result = streamOp stream
     sendStream result metrics outputHost outputPort
 
@@ -227,7 +225,7 @@ readListFromSource = go 0
 --- KAFKA ---
 
 sendStreamKafka :: Store alpha => Stream alpha -> Metrics -> String -> HostName -> PortNumber -> IO ()
-sendStreamKafka stream met podName host port =
+sendStreamKafka stream met nodeName host port =
     E.bracket mkProducer clProducer runHandler >>= print
         where
           mkProducer              = PG.inc (_egressConn met)
@@ -244,6 +242,7 @@ producerProps host port =
     Kafka.Producer.brokersList [BrokerAddress $ T.pack $ host ++ ":" ++ show port]
        <> Kafka.Producer.logLevel KafkaLogDebug
 
+
 sendMessagesKafka :: Store alpha => KafkaProducer -> Stream alpha -> Metrics -> IO (Either KafkaError ())
 sendMessagesKafka prod stream met = do
     mapM_ (\x -> do
@@ -256,7 +255,7 @@ sendMessagesKafka prod stream met = do
 
 
 sendStreamMultiKafka :: Store alpha => Stream alpha -> Metrics -> String -> HostName -> PortNumber -> IO ()
-sendStreamMultiKafka stream met podName host port = do
+sendStreamMultiKafka stream met nodeName host port = do
     (inChan, outChan) <- U.newChan chanSize
     mapM_ (\x ->
             async $ E.bracket mkProducer clProducer (runHandler outChan) >>= print
@@ -296,11 +295,11 @@ kafkaTopic = TopicName "striot-queue"
 
 
 processSocketKafka :: Store alpha => Metrics -> String -> HostName -> PortNumber -> IO (Stream alpha)
-processSocketKafka met podName host port = U.getChanContents =<< runKafkaConsumer met podName host port
+processSocketKafka met nodeName host port = U.getChanContents =<< runKafkaConsumer met nodeName host port
 
 
 runKafkaConsumer :: Store alpha => Metrics -> String -> HostName -> PortNumber -> IO (U.OutChan (Event alpha))
-runKafkaConsumer met podName host port = do
+runKafkaConsumer met nodeName host port = do
     (inChan, outChan) <- U.newChan chanSize
     async $ E.bracket mkConsumer clConsumer (runHandler inChan)
     return outChan
@@ -332,7 +331,6 @@ consumerProps :: HostName -> PortNumber -> ConsumerProperties
 consumerProps host port =
     Kafka.Consumer.brokersList [BrokerAddress $ T.pack $ host ++ ":" ++ show port]
          <> groupId (ConsumerGroupId "consumer_example_group")
-         -- <> noAutoCommit
          <> Kafka.Consumer.logLevel KafkaLogInfo
 
 
@@ -341,23 +339,23 @@ consumerSub = topics [kafkaTopic]
            <> offsetReset Earliest
 
 
---- AMQ MQTT ---
+--- MQTT ---
 
 processSocketMqtt :: Store alpha => String -> HostName -> PortNumber -> IO (Stream alpha)
-processSocketMqtt podName host port = U.getChanContents =<< acceptConnectionsMqtt podName host port
+processSocketMqtt nodeName host port = U.getChanContents =<< acceptConnectionsMqtt nodeName host port
 
 
 acceptConnectionsMqtt :: Store alpha => String -> HostName -> PortNumber -> IO (U.OutChan (Event alpha))
-acceptConnectionsMqtt podName host port = do
+acceptConnectionsMqtt nodeName host port = do
     (inChan, outChan) <- U.newChan chanSize
-    async $ runMqttSub (T.pack podName) mqttTopics host port inChan
-    -- async $ runMqttSub podName host port inChan
+    async $ runMqttSub (T.pack nodeName) mqttTopics host port inChan
+    -- async $ runMqttSub nodeName host port inChan
     return outChan
 
 
 sendStreamMqtt :: Store alpha => Stream alpha -> Metrics -> String -> HostName -> PortNumber -> IO ()
-sendStreamMqtt stream met podName host port = do
-    mc <- runMqttPub podName host port
+sendStreamMqtt stream met nodeName host port = do
+    mc <- runMqttPub nodeName host port
     mapM_ (\x -> do
                     val <- E.evaluate . force . encode $ x
                     PC.inc (_egressEvents met)
@@ -366,8 +364,8 @@ sendStreamMqtt stream met podName host port = do
 
 
 sendStreamMqtt' :: Store alpha => Stream alpha -> Metrics -> String -> HostName -> PortNumber -> IO ()
-sendStreamMqtt' stream met podName host port = do
-    (conf, _) <- mqttConf (T.pack podName) host port
+sendStreamMqtt' stream met nodeName host port = do
+    (conf, _) <- mqttConf (T.pack nodeName) host port
     async $ runMqtt' (return ()) conf
     mapM_ (\x -> do
                     val <- E.evaluate . force . encode $ x
@@ -377,11 +375,11 @@ sendStreamMqtt' stream met podName host port = do
 
 
 sendStreamMqttMulti :: Store alpha => Stream alpha -> Metrics -> String -> HostName -> PortNumber -> IO ()
-sendStreamMqttMulti stream met podName host port = do
+sendStreamMqttMulti stream met nodeName host port = do
     (inChan, outChan) <- U.newChan chanSize
     mapM_ (\x ->
         async $ do
-            mc <- runMqttPub (podName++show x) host port
+            mc <- runMqttPub (nodeName++show x) host port
             vals <- U.getChanContents outChan
             mapM_ (\x -> let val = encode x
                          in  PC.inc (_egressEvents met)
@@ -390,11 +388,11 @@ sendStreamMqttMulti stream met podName host port = do
     U.writeList2Chan inChan stream
 
 sendStreamMqttMulti' :: Store alpha => Stream alpha -> Metrics -> String -> HostName -> PortNumber -> IO ()
-sendStreamMqttMulti' stream met podName host port = do
+sendStreamMqttMulti' stream met nodeName host port = do
     (inChan, outChan) <- U.newChan chanSize
     mapM_ (\x ->
         async $ do
-            (conf, _) <- mqttConf (T.pack $ podName ++ show x) host port
+            (conf, _) <- mqttConf (T.pack $ nodeName ++ show x) host port
             async $ runMqtt' (return ()) conf
             vals <- U.getChanContents outChan
             mapM_ (\x -> let val = encode x
@@ -414,14 +412,14 @@ netmqttTopics = ["StriotQueue"]
 
 
 runMqttPub :: String -> HostName -> PortNumber -> IO MQTTClient
-runMqttPub podName host port =
-    runClient $ netmqttConf podName host port Nothing
+runMqttPub nodeName host port =
+    runClient $ netmqttConf nodeName host port Nothing
 
 
 netmqttConf :: String -> HostName -> PortNumber -> Maybe (MQTTClient -> Topic -> BLC.ByteString -> IO ()) -> MQTTConfig
-netmqttConf podName host port msgCB = mqttConfig{_hostname = host
+netmqttConf nodeName host port msgCB = mqttConfig{_hostname = host
                                                 ,_port     = fromIntegral port
-                                                ,_connID   = podName
+                                                ,_connID   = nodeName
                                                 ,_username = Just "striot"
                                                 ,_password = Just "striot"
                                                 ,_msgCB    = msgCB}
@@ -434,8 +432,8 @@ mqttTopics = ["StriotQueue"]
 
 
 runMqttSub :: Store alpha => T.Text -> [MQTT.Topic] -> HostName -> PortNumber -> U.InChan (Event alpha) -> IO ()
-runMqttSub podName topics host port ch = do
-    (conf, pubChan) <- mqttConf podName host port
+runMqttSub nodeName topics host port ch = do
+    (conf, pubChan) <- mqttConf nodeName host port
     async $ runMqtt' (mqttSub conf pubChan topics) conf
     byteStream <- map (MQTT.payload . MQTT.body) <$> getChanLazy pubChan
     U.writeList2Chan ch $ mapRight decode byteStream
@@ -469,7 +467,7 @@ runMqtt' op conf =
 
 
 mqttConf :: T.Text -> HostName -> PortNumber -> IO (MQTT.Config, TChan (MQTT.Message 'MQTT.PUBLISH))
-mqttConf podName host port = do
+mqttConf nodeName host port = do
     pubChan <- newTChanIO
     cmds <- MQTT.mkCommands
     let conf = (MQTT.defaultConfig cmds pubChan)
@@ -477,7 +475,7 @@ mqttConf podName host port = do
                     , MQTT.cPort = fromIntegral port
                     , MQTT.cUsername = Just "striot"
                     , MQTT.cPassword = Just "striot"
-                    , MQTT.cClientID = podName
+                    , MQTT.cClientID = nodeName
                     , MQTT.cKeepAlive = Just 64000
                     , MQTT.cClean = True}
     return (conf, pubChan)
