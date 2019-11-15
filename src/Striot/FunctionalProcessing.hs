@@ -23,6 +23,10 @@ module Striot.FunctionalProcessing ( streamFilter
                                    , JoinFilter
                                    , JoinMap
 
+                                   , chopId
+                                   , slidingId
+                                   , streamWindowDistribute
+
                                    , htf_thisModulesTests) where
 
 import Striot.FunctionalIoTtypes
@@ -59,6 +63,13 @@ streamWindow fwm s = map (\win-> case win of
                         (fwm s)
            where getVals :: Stream alpha -> [alpha]
                  getVals s = map (\(Event _ _ (Just val))->val) $ filter dataEvent s
+
+streamWindowDistribute :: WindowMaker alpha -> Stream alpha -> Stream alpha
+streamWindowDistribute fwm s = concat (fwm s)
+            -- where
+            --       mapWithId :: Int -> [Stream alpha] -> Stream alpha
+            --       mapWithId cid []     = [Event cid Nothing Nothing]
+            --       mapWithId cid (x:xs) = undefined
 
 -- a useful function building on streamWindow and streamMap
 streamWindowAggregate :: WindowMaker alpha -> WindowAggregator alpha beta -> Stream alpha -> Stream beta
@@ -98,6 +109,32 @@ chopTime tLength s@((Event _ (Just t) _):_) = chopTime' (milliToTimeDiff tLength
           chopTime' tLen tStart s     = let endTime           = addUTCTime tLen tStart
                                             (fstBuffer, rest) = timeTake endTime s
                                         in  fstBuffer : chopTime' tLen endTime rest
+
+chopId :: Int -> WindowMaker alpha
+chopId wLength s = chopId' 0 wLength $ filter dataEvent s
+      where chopId' _   _       [] = []
+            chopId' cid wLength s  = map (\x -> x {eventId = cid}) w:(chopId' (cid+1) wLength r) where (w,r) = splitAt wLength s
+
+chopTimeId :: Int -> WindowMaker alpha -- N.B. discards events without a timestamp
+chopTimeId _       []                         = []
+chopTimeId tLength s@((Event _ (Just t) _):_) = chopTimeId' 0 (milliToTimeDiff tLength) t $ filter timedEvent s
+      where chopTimeId' :: Int -> NominalDiffTime -> UTCTime -> WindowMaker alpha -- the first argument is in milliseconds
+            chopTimeId' _   _    _      []    = []
+            chopTimeId' cid tLen tStart s     = let endTime           = addUTCTime tLen tStart
+                                                    (fstBuffer, rest) = timeTake endTime s
+                                                in  map (\x -> x {eventId = cid}) fstBuffer : chopTimeId' (cid+1) tLen endTime rest
+
+slidingId :: Int -> WindowMaker alpha
+slidingId wLength s = slidingId' 0 wLength $ filter dataEvent s
+            where slidingId':: Int -> Int -> WindowMaker alpha
+                  slidingId' _   _       []      = []
+                  slidingId' cid wLength s@(h:t) = map (\x -> x {eventId = cid}) (take wLength s) : slidingId' (cid+1) wLength t
+
+slidingTimeId :: Int -> WindowMaker alpha -- the first argument is the window length in milliseconds
+slidingTimeId tLength s = slidingTimeId' 0 (milliToTimeDiff tLength) $ filter timedEvent s
+                        where slidingTimeId':: Int -> NominalDiffTime -> Stream alpha -> [Stream alpha]
+                              slidingTimeId' _   _    []                        = []
+                              slidingTimeId' cid tLen s@(Event _ (Just t) _:xs) = map (\x -> x {eventId = cid}) (takeTime (addUTCTime tLen t) s) : slidingTimeId' (cid+1) tLen xs
 
 timeTake :: UTCTime -> Stream alpha -> (Stream alpha, Stream alpha)
 timeTake endTime s = span (\(Event _ (Just t) _) -> t < endTime) s

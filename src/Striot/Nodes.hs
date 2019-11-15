@@ -319,13 +319,13 @@ processKafkaMessages met kc chan = forever $ do
     msg <- pollMessage kc (Timeout 50)
     either (\_ -> return ()) extractValue msg
       where
-          extractValue m = maybe (return ()) writeRight (crValue m)
-          writeRight   v = either (\_ -> return ())
-                                  (\x -> do
+        extractValue m = maybe (print "kafka-error: crValue Nothing") writeRight (crValue m)
+        writeRight   v = either (\err -> print $ "decode-error: " ++ show err)
+                                (\x -> do
                                     PC.inc (_ingressEvents met)
                                         >> PC.add (B.length v) (_ingressBytes met)
                                     U.writeChan chan x)
-                                  (decode v)
+                                (decode v)
 
 
 consumerProps :: HostName -> PortNumber -> ConsumerProperties
@@ -418,28 +418,12 @@ runMqttPub podName host port =
     runClient $ netmqttConf podName host port Nothing
 
 
--- runMqttSub :: String -> HostName -> PortNumber -> U.InChan (Event alpha) -> IO ()
--- -- runMqttSub :: (FromJSON alpha) => String -> HostName -> PortNumber -> U.InChan (Event alpha) -> IO ()
--- runMqttSub podName host port inChan = do
---     print "Run client..."
---     mc <- runClient $ mqttConf podName host port (Just msgReceived)
---     print "Subscribing..."
---     print =<< subscribe mc [(head mqttTopics, QoS0)]
---     -- print "Wait for client..."
---     print =<< waitForClient mc   -- wait for the the client to disconnect
---         where
---             -- msgReceived _ _ m = case decode m of
---                                     -- Just val -> U.writeChan inChan val
---                                     -- Nothing  -> return ()
---             msgReceived _ t m = print (t,m)
---
---
 netmqttConf :: String -> HostName -> PortNumber -> Maybe (MQTTClient -> Topic -> BLC.ByteString -> IO ()) -> MQTTConfig
 netmqttConf podName host port msgCB = mqttConfig{_hostname = host
                                                 ,_port     = fromIntegral port
                                                 ,_connID   = podName
-                                                ,_username = Just "admin"
-                                                ,_password = Just "yy^U#Fca!52Y"
+                                                ,_username = Just "striot"
+                                                ,_password = Just "striot"
                                                 ,_msgCB    = msgCB}
 
 
@@ -455,7 +439,7 @@ runMqttSub podName topics host port ch = do
     async $ runMqtt' (mqttSub conf pubChan topics) conf
     byteStream <- map (MQTT.payload . MQTT.body) <$> getChanLazy pubChan
     U.writeList2Chan ch $ mapRight decode byteStream
-    -- U.writeList2Chan ch =<< mapMaybe decodeStrict $ getChanLazy pubChan
+
 
 mapRight :: (a -> Either c b) -> [a] -> [b]
 mapRight _ []     = []
@@ -491,8 +475,8 @@ mqttConf podName host port = do
     let conf = (MQTT.defaultConfig cmds pubChan)
                     { MQTT.cHost = host
                     , MQTT.cPort = fromIntegral port
-                    , MQTT.cUsername = Just "admin"
-                    , MQTT.cPassword = Just "yy^U#Fca!52Y"
+                    , MQTT.cUsername = Just "striot"
+                    , MQTT.cPassword = Just "striot"
                     , MQTT.cClientID = podName
                     , MQTT.cKeepAlive = Just 64000
                     , MQTT.cClean = True}
@@ -518,7 +502,6 @@ mqttSub conf pubChan topics = do
 -- Kafka
 
 
--- Old connection stuff
 
 {- processSocket is a wrapper function that handles concurrently
 accepting and handling connections on the socket and reading all of the strings
