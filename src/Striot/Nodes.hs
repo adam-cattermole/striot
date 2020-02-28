@@ -16,6 +16,7 @@ import           Control.Concurrent.Chan.Unagi.Bounded         as U
 import           Control.Lens
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
+import           Control.Monad.State
 import           Data.IORef
 import           Data.Maybe
 import           Data.Store                                    (Store)
@@ -223,6 +224,9 @@ defaultMqttConfig :: HostName -> ServiceName -> ConnectionConfig
 defaultMqttConfig = mqttConfig "StriotQueue"
 
 
+defaultState :: (Store alpha) => alpha -> StriotState alpha
+defaultState = StriotState 0
+
 --- INTERNAL OPS ---
 
 processInput :: (Store alpha,
@@ -302,7 +306,7 @@ readListFromSource = go
       where
         msg = do
             now <- getCurrentTime
-            Event (Just now) . Just <$> pay
+            Event Nothing (Just now) . Just <$> pay
 
 
 --- PROMETHEUS ---

@@ -8,6 +8,7 @@ import           Control.Lens                             ((^.))
 import           Control.Lens.Combinators                 (makeClassy)
 import           Control.Lens.TH
 import           Control.Monad.Reader
+import           Data.Int                                 (Int64)
 import           Data.IORef
 import           Network.Socket                           (HostName,
                                                            ServiceName)
@@ -138,3 +139,8 @@ data ConnectType = INGRESS
 data ConnectProtocol = TCP
                      | KAFKA
                      | MQTT
+
+
+data StriotState s = StriotState
+    { _offset   :: Int64
+    , _accValue :: s}
