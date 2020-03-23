@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -F -pgmF htfpp #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Striot.FunctionalProcessing ( streamFilter
                                    , streamMap
@@ -9,7 +10,9 @@ module Striot.FunctionalProcessing ( streamFilter
                                    , streamJoinE
                                    , streamJoinW
                                    , streamFilterAcc
+                                   , streamFilterAccM
                                    , streamScan
+                                   , streamScanM
                                    , streamExpand
                                    , WindowMaker
                                    , WindowAggregator
@@ -25,9 +28,15 @@ module Striot.FunctionalProcessing ( streamFilter
 
                                    , htf_thisModulesTests) where
 
-import Striot.FunctionalIoTtypes
-import Data.Time (UTCTime,addUTCTime,diffUTCTime,NominalDiffTime)
-import Test.Framework
+import           Control.Lens
+import           Control.Monad.State
+import           Control.Monad.Trans.Control
+import           Data.Time                   (NominalDiffTime, UTCTime,
+                                              addUTCTime, diffUTCTime)
+import           Striot.FunctionalIoTtypes
+import           Striot.Nodes.Types
+import           System.IO.Unsafe            (unsafeInterleaveIO)
+import           Test.Framework
 
 -- Define the Basic IoT Stream Functions
 
@@ -104,7 +113,7 @@ chopTime tLength s@((Event _ (Just t) _):_) = chopTime' (milliToTimeDiff tLength
 
 timeTake :: UTCTime -> Stream alpha -> (Stream alpha, Stream alpha)
 timeTake endTime s = span (\(Event _ (Just t) _) -> t < endTime) s
-                                        
+
 complete :: WindowMaker alpha
 complete s = [s]
 
@@ -181,6 +190,60 @@ streamExpand s = concatMap eventExpand s
       where eventExpand :: Event [alpha] -> [Event alpha]
             eventExpand (Event m t (Just v)) = map (\nv->Event m t (Just nv)) v
             eventExpand (Event m t Nothing ) = [Event m t Nothing]
+
+
+--- Monadic versions of our stateful streaming operators ---
+streamScanM :: (MonadState s m,
+                HasStriotState s beta,
+                MonadIO m,
+                MonadBaseControl IO m)
+            => (beta -> alpha -> beta)
+            -> beta
+            -> Stream alpha
+            -> m (Stream beta)
+streamScanM _  _ [] = return []
+streamScanM mf acc (Event (Just m) t v : r)
+    = accValue .= acc
+    >> return []
+streamScanM mf acc (Event m t (Just v) : r)
+    = unsafeInterleaveLiftedIO
+    $ (Event m t (Just newacc) :)
+   <$> streamScanM mf newacc r
+        where newacc = mf acc v
+streamScanM mf acc (Event m t Nothing : r)
+    = unsafeInterleaveLiftedIO
+    $ (Event m t Nothing :)
+   <$> streamScanM mf acc r
+
+
+streamFilterAccM :: (MonadState s m,
+                    HasStriotState s beta,
+                    MonadIO m,
+                    MonadBaseControl IO m)
+                 => (beta -> alpha -> beta)
+                 -> beta
+                 -> (alpha -> beta -> Bool)
+                 -> Stream alpha
+                 -> m (Stream alpha)
+streamFilterAccM _ _ _ [] = return []
+streamFilterAccM _ acc _ (Event (Just m) _ _ : r)
+    = accValue .= acc
+    >> return []
+streamFilterAccM accfn acc ff (e@(Event _ _ (Just v)):r)
+    | ff v acc  = unsafeInterleaveLiftedIO
+                $ (e:)
+               <$> streamFilterAccM accfn (accfn acc v) ff r
+    | otherwise = unsafeInterleaveLiftedIO
+                $ streamFilterAccM accfn (accfn acc v) ff r
+streamFilterAccM accfn acc ff (e@(Event _ _ Nothing ):r)
+      = (e:) <$> streamFilterAccM accfn acc ff r
+
+
+-- This functions allows us to lift our operation into the IO monad
+-- to keep the semantics of lazily evaluated IO
+unsafeInterleaveLiftedIO :: MonadBaseControl IO m => m a -> m a
+unsafeInterleaveLiftedIO = liftBaseOp_ unsafeInterleaveIO
+
 
 --streamSource :: Stream alpha -> Stream alpha
 --streamSource ss = ss

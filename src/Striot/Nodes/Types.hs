@@ -1,13 +1,19 @@
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FunctionalDependencies     #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 module Striot.Nodes.Types where
 
 import           Control.Lens                             ((^.))
 import           Control.Lens.Combinators                 (makeClassy)
 import           Control.Lens.TH
+import           Control.Monad.Base
 import           Control.Monad.Reader
+import           Control.Monad.State
+import           Control.Monad.Trans.Control
 import           Data.Int                                 (Int64)
 import           Data.IORef
 import           Network.Socket                           (HostName,
@@ -60,6 +66,7 @@ data StriotConfig = StriotConfig
     , _ingressConnConfig :: ConnectionConfig
     , _egressConnConfig  :: ConnectionConfig
     , _chanSize          :: Int
+    -- , _stateful          :: Bool
     } deriving (Show)
 makeClassy ''StriotConfig
 
@@ -68,6 +75,7 @@ instance ToEnv StriotConfig where
         makeEnv $
             [ "STRIOT_NODE_NAME" .= _nodeName
             , "STRIOT_CHAN_SIZE" .= _chanSize
+            -- , "STRIOT_STATEFUL"  .= _stateful
             ] ++ writeConf INGRESS _ingressConnConfig
               ++ writeConf EGRESS  _egressConnConfig
 
@@ -97,6 +105,7 @@ instance FromEnv StriotConfig where
             <*> readConf INGRESS
             <*> readConf EGRESS
             <*> envMaybe "STRIOT_CHAN_SIZE" .!= 10
+            -- <*> envMaybe "STRIOT_STATEFUL"  .!= False
 
 readConf :: ConnectType -> Parser ConnectionConfig
 readConf t = do
@@ -123,7 +132,7 @@ nc base = NetConfig
 
 newtype StriotApp a =
     StriotApp {
-        unApp :: ReaderT StriotConfig IO a
+        unStriotApp :: ReaderT StriotConfig IO a
     } deriving (
         Functor,
         Applicative,
@@ -140,7 +149,22 @@ data ConnectProtocol = TCP
                      | KAFKA
                      | MQTT
 
+newtype App s a =
+    App {
+        unApp :: ReaderT StriotConfig (StateT (StriotState s) IO) a
+    } deriving (
+        Functor,
+        Applicative,
+        Monad,
+        MonadReader StriotConfig,
+        MonadState (StriotState s),
+        MonadIO,
+        MonadBase IO,
+        MonadBaseControl IO
+    )
 
 data StriotState s = StriotState
     { _offset   :: Int64
     , _accValue :: s}
+    deriving (Show)
+makeClassy ''StriotState

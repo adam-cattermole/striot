@@ -1,9 +1,11 @@
 module Striot.Nodes.Kafka
 ( sendStreamKafka
 , runKafkaConsumer
+, runKafkaConsumer'
 ) where
 
 import           Control.Concurrent                       (threadDelay)
+import           Control.Concurrent.Async                 (async)
 import           Control.Concurrent.Chan.Unagi.Bounded    as U
 import qualified Control.Exception                        as E (bracket)
 import           Control.Lens
@@ -70,21 +72,63 @@ mkMessage topic k v =
 
 
 runKafkaConsumer :: Store alpha => String -> KafkaConfig -> Metrics -> U.InChan (Event alpha) -> IO ()
-runKafkaConsumer name conf met chan = E.bracket mkConsumer clConsumer (runHandler chan)
-    where
-        mkConsumer                 = PG.inc (_ingressConn met)
-                                     >> print "create new consumer"
-                                     >> newConsumer (consumerProps conf)
-                                                    (consumerSub $ TopicName . T.pack $ conf ^. kafkaTopic)
-        clConsumer      (Left err) = print "error close consumer"
+runKafkaConsumer name conf met chan =
+    E.bracket
+        (mkConsumer conf met)
+        (clConsumer met)
+        (runHandler met chan)
+    -- where
+    --     mkConsumer                 = PG.inc (_ingressConn met)
+    --                                  >> print "create new consumer"
+    --                                  >> newConsumer (consumerProps conf)
+    --                                                 (consumerSub $ TopicName . T.pack $ conf ^. kafkaTopic)
+    --     clConsumer      (Left err) = print "error close consumer"
+    --                                  >> return ()
+    --     clConsumer      (Right kc) = void $ closeConsumer kc
+    --                                       >> PG.dec (_ingressConn met)
+    --                                       >> print "close consumer"
+    --     runHandler _    (Left err) = print "error handler close consumer"
+    --                                  >> return ()
+    --     runHandler chan (Right kc) = print "runhandler consumer"
+    --                                  >> processKafkaMessages met kc chan
+
+
+runKafkaConsumer' :: Store alpha
+                  => String
+                  -> KafkaConfig
+                  -> Metrics
+                  -> U.InChan (Event alpha)
+                  -> IO (Either KafkaError KafkaConsumer)
+runKafkaConsumer' name conf met chan = do
+    kc <- mkConsumer conf met
+    async $ runHandler met chan kc
+          >> clConsumer met kc
+    return kc
+
+
+mkConsumer :: KafkaConfig -> Metrics -> IO (Either KafkaError KafkaConsumer)
+mkConsumer conf met = PG.inc (_ingressConn met)
+                    >> print "create new consumer"
+                    >> newConsumer (consumerProps conf)
+                                (consumerSub $ TopicName . T.pack $ conf ^. kafkaTopic)
+
+clConsumer :: Metrics -> Either KafkaError KafkaConsumer -> IO ()
+clConsumer met (Left err) = print "error close consumer"
                                      >> return ()
-        clConsumer      (Right kc) = void $ closeConsumer kc
-                                          >> PG.dec (_ingressConn met)
-                                          >> print "close consumer"
-        runHandler _    (Left err) = print "error handler close consumer"
-                                     >> return ()
-        runHandler chan (Right kc) = print "runhandler consumer"
-                                     >> processKafkaMessages met kc chan
+clConsumer met (Right kc) = void
+                          $ closeConsumer kc
+                            >> PG.dec (_ingressConn met)
+                            >> print "close consumer"
+
+runHandler :: Store alpha
+           => Metrics
+           -> U.InChan (Event alpha)
+           -> Either KafkaError KafkaConsumer
+           -> IO ()
+runHandler _   _    (Left err) = print "error handler close consumer"
+                                >> return ()
+runHandler met chan (Right kc) = print "runhandler consumer"
+                                >> processKafkaMessages met kc chan
 
 
 processKafkaMessages :: Store alpha => Metrics -> KafkaConsumer -> U.InChan (Event alpha) -> IO ()
