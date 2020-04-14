@@ -1,6 +1,7 @@
 module Striot.Nodes.TCP
 ( connectTCP
 , sendStreamTCP
+, sendStreamTCPS
 , processSocket
 ) where
 
@@ -9,6 +10,8 @@ import           Control.Concurrent.Async                 (async)
 import           Control.Concurrent.Chan.Unagi.Bounded    as U
 import qualified Control.Exception                        as E (bracket, catch,
                                                                 evaluate)
+import           Kafka.Consumer                                as KC
+import           Striot.Nodes.Kafka                       (KafkaRecord)                                                                
 import           Control.Lens
 import           Control.Monad                            (forever)
 import qualified Data.ByteString                          as B (ByteString,
@@ -114,6 +117,34 @@ writeSocket conn met =
             in  PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
                 >> sendAll conn val)
+
+
+{- Connects to socket within a bracket to ensure the socket is closed if an
+exception occurs. Stateful variant -}
+sendStreamTCPS :: Store alpha => String -> TCPConfig -> Metrics -> (KafkaConsumer, [KafkaRecord]) -> Stream alpha -> IO ()
+sendStreamTCPS _ _    _   _  []     = return ()
+sendStreamTCPS _ conf met kset stream =
+    E.bracket (PG.inc (_egressConn met)
+               >> connectSocket (conf ^. tcpConn . host) (conf ^. tcpConn . port))
+              (\conn -> PG.dec (_egressConn met)
+                        >> close conn)
+              (\conn -> writeSocketS conn met kset stream)
+
+
+{- Encode messages and send over the socket. Stateful variant tells Kafka
+we have successfully consumed by committing offsets -}
+writeSocketS :: Store alpha => Socket -> Metrics -> (KafkaConsumer, [KafkaRecord]) -> Stream alpha -> IO ()
+writeSocketS conn met (kc, kr) =
+    mapM_ (\event -> do
+            let val = SS.encodeMessage . SS.Message $ event
+                -- get all KafkaRecord structures <= current eventId
+                rtc = map snd $ takeWhile (\x -> eventId event >= fst x) kr
+            PC.inc (_egressEvents met)
+                >> PC.add (B.length val) (_egressBytes met)
+                >> sendAll conn val
+            -- After sending message downstream we commit all offsets
+            -- mapM_ (commitOffsetMessage OffsetCommitAsync kc) rtc)
+            mapM_ (storeOffsetMessage kc) rtc)
 
 
 --- SOCKETS ---

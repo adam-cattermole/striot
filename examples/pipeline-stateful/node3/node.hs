@@ -9,11 +9,11 @@ sink1 :: Show a => Stream a -> IO ()
 sink1 = mapM_ print
 
 
-streamGraphFn :: Stream Int -> Stream [String]
+streamGraphFn :: Stream Int -> Stream String
 streamGraphFn n1 = let
     n2 = (\s -> streamMap (\st->"Incoming Message at Server: " ++ show st) s) n1
-    n3 = (\s -> streamWindow (chop 2) s) n2
-    in n3
+    -- n3 = (\s -> streamWindow (chop 2) s) n2
+    in n2
 
 
 main :: IO ()

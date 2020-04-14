@@ -23,8 +23,10 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.Trans.Control
+import           Kafka.Consumer                                as KC
 import           Data.IORef
 import           Data.Maybe
+import           Data.Either                                   (fromRight)
 import           Data.Store                                    (Store)
 import           Data.Text                                     as T (pack)
 import           Data.Time                                     (getCurrentTime)
@@ -70,7 +72,7 @@ nodeSource' iofn streamOp = do
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
     stream <- liftIO $ readListFromSource iofn metrics
     let result = streamOp stream
-    sendStream metrics result
+    sendStream metrics Nothing result
 
 
 nodeLink :: (Store alpha, Store beta)
@@ -92,7 +94,7 @@ nodeLink' streamOp = do
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
     stream <- processInput metrics
     let result = streamOp stream
-    sendStream metrics result
+    sendStream metrics Nothing result
 
 
 nodeLinkStateful :: (Store alpha, Store beta, Show gamma)
@@ -124,9 +126,19 @@ nodeLinkStateful' streamOp = do
                                           kafkaConf
                                           met
                                           inChan
-            return (met, outChan, consumer)
-    result <- streamOp =<< (liftIO $ U.getChanContents outChan)
-    sendStream metrics result
+            return (met, outChan, either (const Nothing) Just consumer)
+    -- liftIO $ print "{1}: Retrieve Input"
+    input <- liftIO $ U.getChanContents outChan
+    let kr     = map fst input
+        stream = map snd input
+        kset   = (,) <$> kc <*> pure kr
+    -- liftIO $ print "{2}: Perform streamOp"
+
+    -- liftIO $ print ("{3}: Message 1: " ++ (show . eventId $ head stream) ++ " KR: " ++ (show $ head kr))
+    result <- streamOp stream
+    liftIO $ print "{4}: Send stream"
+    sendStream metrics kset result
+    liftIO $ print "{5}: Get acc"
     acc <- get
     liftIO $ print acc
     where
@@ -135,28 +147,11 @@ nodeLinkStateful' streamOp = do
         failFalse _     _     = return ()
 
 
--- matchConfig :: ConnectProtocol -> ConnectionConfig -> Bool
--- matchConfig TCP   cc =
---     case cc of
---         ConnTCPConfig _ -> True
---         _               -> False
--- matchConfig KAFKA cc =
---     case cc of
---         ConnKafkaConfig _ -> True
---         _                 -> False
--- matchConfig MQTT  cc =
---     case cc of
---         ConnMQTTConfig _ -> True
---         _                -> False
-
 
 matchConfig :: ConnectProtocol -> ConnectionConfig -> Bool
 matchConfig TCP   (ConnTCPConfig   _) = True
--- matchConfig TCP   _                   = False
 matchConfig KAFKA (ConnKafkaConfig _) = True
--- matchConfig KAFKA _                   = False
 matchConfig MQTT  (ConnMQTTConfig  _) = True
--- matchConfig MQTT  _                   = False
 matchConfig _     _                   = False
 
 
@@ -345,14 +340,16 @@ sendStream :: (Store alpha,
               HasStriotConfig r,
               MonadIO m)
            => Metrics
+           -> Maybe (KafkaConsumer, [KafkaRecord])
            -> Stream alpha
            -> m ()
-sendStream metrics stream = do
+sendStream metrics kset stream = do
     c <- ask
     liftIO
         $ sendDispatch (c ^. nodeName)
                        (c ^. egressConnConfig)
                        metrics
+                       kset
                        stream
 
 
@@ -361,25 +358,31 @@ sendDispatch :: (Store alpha,
              => String
              -> ConnectionConfig
              -> Metrics
+             -> Maybe (KafkaConsumer, [KafkaRecord])
              -> Stream alpha
              -> m ()
-sendDispatch name (ConnTCPConfig   cc) met stream = liftIO $ sendStreamTCP   name cc met stream
-sendDispatch name (ConnKafkaConfig cc) met stream = liftIO $ sendStreamKafka name cc met stream
-sendDispatch name (ConnMQTTConfig  cc) met stream = liftIO $ sendStreamMQTT  name cc met stream
+sendDispatch name (ConnTCPConfig   cc) met (Just kset) stream = liftIO $ sendStreamTCPS   name cc met kset stream
+sendDispatch name (ConnTCPConfig   cc) met Nothing     stream = liftIO $ sendStreamTCP    name cc met      stream
+sendDispatch name (ConnKafkaConfig cc) met _           stream = liftIO $ sendStreamKafka  name cc met      stream
+sendDispatch name (ConnMQTTConfig  cc) met _           stream = liftIO $ sendStreamMQTT   name cc met      stream
+-- sendDispatch name (ConnKafkaConfig cc) met (Just kc) stream = liftIO $ sendStreamKafkaS name cc met stream
+-- sendDispatch name (ConnKafkaConfig cc) met Nothing   stream = liftIO $ sendStreamKafka  name cc met stream
+-- sendDispatch name (ConnMQTTConfig  cc) met (Just kc) stream = liftIO $ sendStreamMQTTS  name cc met stream
+-- sendDispatch name (ConnMQTTConfig  cc) met Nothing   stream = liftIO $ sendStreamMQTT   name cc met stream
 
 
 readListFromSource :: IO alpha -> Metrics -> IO (Stream alpha)
-readListFromSource = go
+readListFromSource = go 0
   where
-    go pay met = unsafeInterleaveIO $ do
+    go i pay met = unsafeInterleaveIO $ do
         x  <- msg
         PC.inc (_ingressEvents met)
-        xs <- go pay met
+        xs <- go (i + 1) pay met
         return (x : xs)
       where
         msg = do
             now <- getCurrentTime
-            Event Nothing (Just now) . Just <$> pay
+            Event i Nothing (Just now) . Just <$> pay
 
 
 --- PROMETHEUS ---
