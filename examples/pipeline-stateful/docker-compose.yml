@@ -35,9 +35,12 @@ services:
       STRIOT_EGRESS_HOST: node3
       STRIOT_EGRESS_PORT: 9001
       STRIOT_CHAN_SIZE: 10
+      STRIOT_STATE_HOST: redis
+      STRIOT_STATE_PORT: 6379
     depends_on:
       - kafka
       - node3
+      - redis
   node1:
     build: node1
     stdin_open: true
@@ -75,3 +78,37 @@ services:
       - kafka
       - node2
       - node1
+  redis:
+    image: redis
+    ports:
+      - "6379"
+  node2_new:
+    build: node2
+    ports:
+      - "9001"
+    stdin_open: true
+    tty: true
+    environment:
+      STRIOT_NODE_NAME: striot-link
+      STRIOT_INGRESS_TYPE: KAFKA
+      STRIOT_INGRESS_HOST: kafka
+      STRIOT_INGRESS_PORT: 9092
+      STRIOT_INGRESS_KAFKA_TOPIC: striot-queue
+      STRIOT_INGRESS_KAFKA_CON_GROUP: striot_con_group
+      STRIOT_EGRESS_TYPE: TCP
+      STRIOT_EGRESS_HOST: node3
+      STRIOT_EGRESS_PORT: 9001
+      STRIOT_CHAN_SIZE: 10
+      STRIOT_STATE_HOST: redis
+      STRIOT_STATE_PORT: 6379
+      STRIOT_STATE_INIT: "True"
+      STRIOT_STATE_KEY: sdj123914k
+    depends_on:
+      - kafka
+      - node3
+      - redis
+    entrypoint: >
+      /bin/bash -c "
+        sleep 150;
+        /opt/node/node;
+      "

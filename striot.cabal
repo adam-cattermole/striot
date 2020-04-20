@@ -54,6 +54,8 @@ library
                     , envy              >= 2.0.0.0
                     , monad-control     >= 1.0.2.3
                     , transformers-base >= 0.4.5.2
+                    , hedis             >= 0.12.13
+                    , unix
   hs-source-dirs:     src
   default-language:   Haskell2010
 
@@ -87,6 +89,8 @@ test-suite test-striot
                     , envy              >= 2.0.0.0
                     , monad-control     >= 1.0.2.3
                     , transformers-base >= 0.4.5.2
+                    , hedis             >= 0.12.13
+                    , unix
   other-modules:      Striot.CompileIoT
                       Striot.FunctionalIoTtypes
                       Striot.FunctionalProcessing

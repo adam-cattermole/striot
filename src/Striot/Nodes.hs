@@ -23,11 +23,12 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.Trans.Control
+import qualified Control.Exception                        as E (bracket)
 import           Kafka.Consumer                                as KC
 import           Data.IORef
 import           Data.Maybe
 import           Data.Either                                   (fromRight)
-import           Data.Store                                    (Store)
+import           Data.Store                                    (Store, encode, decodeEx)
 import           Data.Text                                     as T (pack)
 import           Data.Time                                     (getCurrentTime)
 import           Network.Socket                                (HostName,
@@ -39,7 +40,7 @@ import           Striot.Nodes.TCP
 import           Striot.Nodes.Types                            hiding (nc,
                                                                 readConf,
                                                                 writeConf)
-import           System.Exit                                   (exitFailure)
+import           System.Exit                                   (exitFailure, exitSuccess, ExitCode(..))
 import           System.IO
 import           System.IO.Unsafe
 import           System.Metrics.Prometheus.Concurrent.Registry as PR (new, registerCounter,
@@ -48,6 +49,8 @@ import           System.Metrics.Prometheus.Concurrent.Registry as PR (new, regis
 import           System.Metrics.Prometheus.Http.Scrape         (serveHttpTextMetrics)
 import           System.Metrics.Prometheus.Metric.Counter      as PC (inc)
 import           System.Metrics.Prometheus.MetricId            (addLabel)
+import qualified Database.Redis                                as R
+import           System.Posix.Process                          (exitImmediately)
 
 
 -- NODE FUNCTIONS
@@ -97,7 +100,7 @@ nodeLink' streamOp = do
     sendStream metrics Nothing result
 
 
-nodeLinkStateful :: (Store alpha, Store beta, Show gamma)
+nodeLinkStateful :: (Store alpha, Store beta, Show gamma, Store gamma)
                  => StriotConfig
                  -> (Stream alpha -> App gamma (Stream beta))
                  -> IO ()
@@ -105,7 +108,7 @@ nodeLinkStateful config streamOp =
     evalStateT (runReaderT (unApp $ nodeLinkStateful' streamOp) config) defaultState
 
 
-nodeLinkStateful' :: (Store alpha, Store beta, Show gamma, Show s,
+nodeLinkStateful' :: (Store alpha, Store beta, Show gamma, Show s, Store gamma,
                     MonadReader r m,
                     MonadState s m,
                     HasStriotState s gamma,
@@ -116,9 +119,16 @@ nodeLinkStateful' :: (Store alpha, Store beta, Show gamma, Show s,
                  -> m ()
 nodeLinkStateful' streamOp = do
     c <- ask
+    case (c ^. stateInit) of
+        True      -> retrieveState (c ^. stateKey)
+        otherwise -> return ()
+    acc <- get
+    liftIO $ print ("init new to : " ++ show acc)
+    -- Check that input is KAFKA
     liftIO $ failFalse (matchConfig KAFKA (c ^. ingressConnConfig)) (matchConfig TCP (c ^. egressConnConfig))
     let ConnKafkaConfig kafkaConf = (c ^. ingressConnConfig)
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
+    -- Manually start connection with Kafka so that we can store offsets
     (metrics, outChan, kc) <- liftIO $ do
             met <- startPrometheus (c ^. nodeName)
             (inChan, outChan) <- U.newChan (c ^. chanSize)
@@ -127,20 +137,22 @@ nodeLinkStateful' streamOp = do
                                           met
                                           inChan
             return (met, outChan, either (const Nothing) Just consumer)
-    -- liftIO $ print "{1}: Retrieve Input"
+
+    -- Retrieve a stream of both the KafkaRecords (for offset commits)
+    -- and the stream
     input <- liftIO $ U.getChanContents outChan
     let kr     = map fst input
         stream = map snd input
         kset   = (,) <$> kc <*> pure kr
-    -- liftIO $ print "{2}: Perform streamOp"
 
-    -- liftIO $ print ("{3}: Message 1: " ++ (show . eventId $ head stream) ++ " KR: " ++ (show $ head kr))
     result <- streamOp stream
-    liftIO $ print "{4}: Send stream"
     sendStream metrics kset result
-    liftIO $ print "{5}: Get acc"
+    -- If the stream ever ends we know that the acc must have been set
     acc <- get
     liftIO $ print acc
+    -- Store the state in redis
+    storeState
+    liftIO $ exitImmediately ExitSuccess
     where
         failFalse False _     = print "No incoming KAFKA connection" >> exitFailure
         failFalse _     False = print "No outgoing KAFKA connection" >> exitFailure
@@ -265,7 +277,9 @@ baseConfig name icc ecc =
         , _ingressConnConfig = icc
         , _egressConnConfig  = ecc
         , _chanSize          = 10
-        -- , _stateful          = False
+        , _stateStore        = defaultStateStore
+        , _stateInit         = False
+        , _stateKey          = ""
         }
 
 
@@ -293,7 +307,11 @@ defaultMqttConfig = mqttConfig "StriotQueue"
 
 
 defaultState :: (Show alpha) => StriotState alpha
-defaultState = StriotState 0 undefined
+defaultState = StriotState "" Nothing
+
+
+defaultStateStore :: NetConfig
+defaultStateStore = NetConfig "redis" "6379"
 
 --- INTERNAL OPS ---
 
@@ -402,3 +420,49 @@ startPrometheus name = do
         <*> rg "striot_egress_connection"
         <*> rc "striot_egress_bytes_total"
         <*> rc "striot_egress_events_total"
+
+
+--- REDIS ---
+
+storeState :: (Store alpha,
+               MonadReader r m,
+               MonadState s m,
+               HasStriotState s alpha,
+               HasStriotConfig r,
+               MonadIO m)
+           => m ()
+storeState = do
+    s <- get
+    connInfo <- getConnectInfo
+    liftIO $ runRedis connInfo $ R.set (encode $ s ^. accKey) (encode $ s ^. accValue)
+           >> return ()
+
+
+retrieveState :: (Store alpha,
+                  MonadReader r m,
+                  MonadState s m,
+                  HasStriotState s alpha,
+                  HasStriotConfig r,
+                  MonadIO m)
+              => String
+              -> m ()
+retrieveState k = do
+    connInfo <- getConnectInfo
+    s <- liftIO $ do
+            runRedis connInfo $ (decodeEx . fromJust . fromRight Nothing <$> R.get (encode k))
+    accKey .= k >> accValue .= s
+
+
+getConnectInfo :: (MonadReader r m,
+                  HasStriotConfig r)
+               => m (R.ConnectInfo)
+getConnectInfo = do
+    c <- ask
+    return $ R.defaultConnectInfo { R.connectHost = (c ^. stateStore . host)
+                                  , R.connectPort = (R.PortNumber $ read $ c ^. stateStore . port) }
+
+
+runRedis :: R.ConnectInfo -> R.Redis a -> IO a
+runRedis connInfo r = E.bracket (R.checkedConnect connInfo)
+                                (R.disconnect)
+                                (\conn -> R.runRedis conn $ r)

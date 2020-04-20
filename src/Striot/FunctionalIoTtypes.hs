@@ -5,7 +5,7 @@ import           Data.Time    (UTCTime)
 import           GHC.Generics (Generic)
 
 data Event alpha = Event { eventId :: Int
-                         , manage  :: Maybe Int
+                         , manage  :: Maybe String
                          , time    :: Maybe Timestamp
                          , value   :: Maybe alpha
                          }

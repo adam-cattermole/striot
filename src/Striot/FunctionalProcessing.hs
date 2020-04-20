@@ -193,6 +193,7 @@ streamExpand s = concatMap eventExpand s
 
 
 --- Monadic versions of our stateful streaming operators ---
+
 streamScanM :: (MonadState s m,
                 HasStriotState s beta,
                 MonadIO m,
@@ -201,42 +202,74 @@ streamScanM :: (MonadState s m,
             -> beta
             -> Stream alpha
             -> m (Stream beta)
-streamScanM _  _ [] = return []
-streamScanM mf acc (Event i (Just m) t v : r)
-    = accValue .= acc
-    >> return []
-streamScanM mf acc (Event i m t (Just v) : r)
+streamScanM mf acc s = do
+    state <- get
+    case (state ^. accValue) of
+        Nothing -> streamScanM' mf acc s
+        Just v  -> streamScanM' mf v   s
+
+streamScanM' :: (MonadState s m,
+                 HasStriotState s beta,
+                 MonadIO m,
+                 MonadBaseControl IO m)
+             => (beta -> alpha -> beta)
+             -> beta
+             -> Stream alpha
+             -> m (Stream beta)
+streamScanM' _  _ [] = return []
+streamScanM' mf acc (Event i (Just m) t v : r)
+    =  accKey   .= m
+    >> accValue .= Just acc
+    >> return [Event i (Just m) Nothing Nothing]
+streamScanM' mf acc (Event i m t (Just v) : r)
     = unsafeInterleaveLiftedIO
     $ (Event i m t (Just newacc) :)
-   <$> streamScanM mf newacc r
+   <$> streamScanM' mf newacc r
         where newacc = mf acc v
-streamScanM mf acc (Event i m t Nothing : r)
+streamScanM' mf acc (Event i m t Nothing : r)
     = unsafeInterleaveLiftedIO
     $ (Event i m t Nothing :)
-   <$> streamScanM mf acc r
+   <$> streamScanM' mf acc r
 
 
 streamFilterAccM :: (MonadState s m,
-                    HasStriotState s beta,
-                    MonadIO m,
-                    MonadBaseControl IO m)
+                     HasStriotState s beta,
+                     MonadIO m,
+                     MonadBaseControl IO m)
                  => (beta -> alpha -> beta)
                  -> beta
                  -> (alpha -> beta -> Bool)
                  -> Stream alpha
                  -> m (Stream alpha)
-streamFilterAccM _ _ _ [] = return []
-streamFilterAccM _ acc _ (Event _ (Just m) _ _ : r)
-    = accValue .= acc
-    >> return []
-streamFilterAccM accfn acc ff (e@(Event _ _ _ (Just v)):r)
+streamFilterAccM accfn acc ff s = do
+    state <- get
+    case (state ^. accValue) of
+        Nothing -> streamFilterAccM' accfn acc ff s
+        Just v  -> streamFilterAccM' accfn v   ff s
+
+
+streamFilterAccM' :: (MonadState s m,
+                      HasStriotState s beta,
+                      MonadIO m,
+                      MonadBaseControl IO m)
+                  => (beta -> alpha -> beta)
+                  -> beta
+                  -> (alpha -> beta -> Bool)
+                  -> Stream alpha
+                  -> m (Stream alpha)
+streamFilterAccM' _ _ _ [] = return []
+streamFilterAccM' _ acc _ (Event i (Just m) _ _ : r)
+    =  accKey   .= m
+    >> accValue .= Just acc
+    >> return [Event i (Just m) Nothing Nothing]
+streamFilterAccM' accfn acc ff (e@(Event _ _ _ (Just v)):r)
     | ff v acc  = unsafeInterleaveLiftedIO
                 $ (e:)
-               <$> streamFilterAccM accfn (accfn acc v) ff r
+               <$> streamFilterAccM' accfn (accfn acc v) ff r
     | otherwise = unsafeInterleaveLiftedIO
-                $ streamFilterAccM accfn (accfn acc v) ff r
-streamFilterAccM accfn acc ff (e@(Event _ _ _ Nothing):r)
-      = (e:) <$> streamFilterAccM accfn acc ff r
+                $ streamFilterAccM' accfn (accfn acc v) ff r
+streamFilterAccM' accfn acc ff (e@(Event _ _ _ Nothing):r)
+      = (e:) <$> streamFilterAccM' accfn acc ff r
 
 
 -- This functions allows us to lift our operation into the IO monad

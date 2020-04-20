@@ -66,7 +66,9 @@ data StriotConfig = StriotConfig
     , _ingressConnConfig :: ConnectionConfig
     , _egressConnConfig  :: ConnectionConfig
     , _chanSize          :: Int
-    -- , _stateful          :: Bool
+    , _stateStore        :: NetConfig
+    , _stateInit         :: Bool
+    , _stateKey          :: String
     } deriving (Show)
 makeClassy ''StriotConfig
 
@@ -75,9 +77,12 @@ instance ToEnv StriotConfig where
         makeEnv $
             [ "STRIOT_NODE_NAME" .= _nodeName
             , "STRIOT_CHAN_SIZE" .= _chanSize
-            -- , "STRIOT_STATEFUL"  .= _stateful
             ] ++ writeConf INGRESS _ingressConnConfig
               ++ writeConf EGRESS  _egressConnConfig
+              ++ [ "STRIOT_STATE_HOST" .= (_host _stateStore)
+                 , "STRIOT_STATE_PORT" .= (_port _stateStore)
+                 , "STRIOT_STATE_INIT" .= _stateInit
+              ]
 
 writeConf :: ConnectType -> ConnectionConfig -> [EnvVar]
 writeConf t (ConnTCPConfig   conf) =
@@ -100,12 +105,16 @@ writeConf t (ConnMQTTConfig  conf) =
         , (base ++ "MQTT_TOPIC") .= (conf ^. mqttTopic)]
 
 instance FromEnv StriotConfig where
-    fromEnv _ = StriotConfig
+    fromEnv _ =
+        let state = readStateConf
+        in  StriotConfig
             <$> envMaybe "STRIOT_NODE_NAME" .!= "striot"
             <*> readConf INGRESS
             <*> readConf EGRESS
             <*> envMaybe "STRIOT_CHAN_SIZE" .!= 10
-            -- <*> envMaybe "STRIOT_STATEFUL"  .!= False
+            <*> nc "STRIOT_STATE_" (Just ("redis", "6379"))
+            <*> (fst <$> state)
+            <*> (snd <$> state)
 
 readConf :: ConnectType -> Parser ConnectionConfig
 readConf t = do
@@ -114,21 +123,32 @@ readConf t = do
     case p of
         "TCP"   -> ConnTCPConfig
                     <$> (TCPConfig
-                            <$> nc base)
+                            <$> nc base Nothing)
         "KAFKA" -> ConnKafkaConfig
                     <$> (KafkaConfig
-                        <$> nc base
+                        <$> nc base Nothing
                         <*> env (base ++ "KAFKA_TOPIC")
                         <*> env (base ++ "KAFKA_CON_GROUP"))
         "MQTT"  -> ConnMQTTConfig
                     <$> (MQTTConfig
-                        <$> nc base
+                        <$> nc base Nothing
                         <*> env (base ++ "MQTT_TOPIC"))
 
-nc :: String -> Parser NetConfig
-nc base = NetConfig
-        <$> env (base ++ "HOST")
-        <*> env (base ++ "PORT")
+readStateConf :: Parser (Bool, String)
+readStateConf = do
+    let p = envMaybe ("STRIOT_STATE_INIT") .!= False
+    init <- p
+    case init of
+        False -> (,) <$> p <*> envMaybe "STRIOT_STATE_KEY" .!= ""
+        True  -> (,) <$> p <*> env "STRIOT_STATE_KEY"
+
+nc :: String -> Maybe (HostName, ServiceName) -> Parser NetConfig
+nc base Nothing = NetConfig
+    <$> env (base ++ "HOST")
+    <*> env (base ++ "PORT")
+nc base (Just (host,port)) = NetConfig
+    <$> envMaybe (base ++ "HOST") .!= host
+    <*> envMaybe (base ++ "PORT") .!= port
 
 newtype StriotApp a =
     StriotApp {
@@ -164,7 +184,7 @@ newtype App s a =
     )
 
 data StriotState s = StriotState
-    { _offset   :: Int64
-    , _accValue :: s}
+    { _accKey   :: String
+    , _accValue :: Maybe s}
     deriving (Show)
 makeClassy ''StriotState

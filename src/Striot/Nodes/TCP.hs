@@ -142,9 +142,7 @@ writeSocketS conn met (kc, kr) =
             PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
                 >> sendAll conn val
-            -- After sending message downstream we commit all offsets
-            -- mapM_ (commitOffsetMessage OffsetCommitAsync kc) rtc)
-            mapM_ (storeOffsetMessage kc) rtc)
+            mapM_ (commitOffsetMessage OffsetCommitAsync kc) rtc)
 
 
 --- SOCKETS ---

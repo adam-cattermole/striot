@@ -12,3 +12,4 @@ extra-deps:
 - socks-0.6.1
 - hw-kafka-client-3.0.0
 - envy-2.0.0.0
+- hedis-0.12.13
