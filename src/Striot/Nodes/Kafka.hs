@@ -2,12 +2,13 @@ module Striot.Nodes.Kafka
 ( sendStreamKafka
 , runKafkaConsumer
 , runKafkaConsumer'
-, KafkaRecord
 ) where
 
 import           Control.Concurrent                       (threadDelay)
 import           Control.Concurrent.Async                 (async)
 import           Control.Concurrent.Chan.Unagi.Bounded    as U
+import           Control.Concurrent.STM                   (atomically)
+import           Control.Concurrent.STM.TVar              as TV
 import qualified Control.Exception                        as E (bracket)
 import           Control.Lens
 import           Control.Monad                            (forever, void)
@@ -20,11 +21,10 @@ import           Kafka.Consumer                           as KC
 import           Kafka.Producer                           as KP
 import           Striot.FunctionalIoTtypes
 import           Striot.Nodes.Types
+import           Striot.Nodes.Kafka.Types
+import           Striot.Nodes.TCP                               (connectTCP')
 import           System.Metrics.Prometheus.Metric.Counter as PC (add, inc)
 import           System.Metrics.Prometheus.Metric.Gauge   as PG (dec, inc)
-
-
-type KafkaRecord = (Int, ConsumerRecord (Maybe B.ByteString) (Maybe B.ByteString))
 
 
 sendStreamKafka :: Store alpha => String -> KafkaConfig -> Metrics -> Stream alpha -> IO ()
@@ -105,8 +105,10 @@ runKafkaConsumer' :: Store alpha
                   -> IO (Either KafkaError KafkaConsumer)
 runKafkaConsumer' name conf met chan = do
     kc <- mkConsumer conf met
-    async $ runHandler' met chan kc
+    var <- TV.newTVarIO 0
+    async $ runHandler' met chan var kc
           >> clConsumer met kc
+    async $ connectTCP' name defaultTCPConfig met chan var
     return kc
 
 
@@ -154,36 +156,39 @@ processKafkaMessages met kc chan = forever $ do
 runHandler' :: Store alpha
            => Metrics
            -> U.InChan (KafkaRecord, (Event alpha))
+           -> TV.TVar Int
            -> Either KafkaError KafkaConsumer
            -> IO ()
-runHandler' _   _    (Left err) = print "error handler close consumer"
-                                >> return ()
-runHandler' met chan (Right kc) = print "runhandler consumer"
-                                >> threadDelay kafkaConnectDelayMs
+runHandler' _   _    _   (Left err) = print "error handler close consumer"
+                                   >> return ()
+runHandler' met chan var (Right kc) = print "runhandler consumer"
+                                   >> threadDelay kafkaConnectDelayMs
                                 -- >> threadDelay 30000000
                                 -- >> pollMessage kc (Timeout 50)
                                 -- >> threadDelay 30000000
-                                >> processKafkaMessages' 0 met kc chan
+                                   >> processKafkaMessages' var met kc chan
 
 
 
 
-processKafkaMessages' :: Store alpha => Int -> Metrics -> KafkaConsumer -> U.InChan (KafkaRecord, (Event alpha)) -> IO ()
-processKafkaMessages' i met kc chan = do
+processKafkaMessages' :: Store alpha => TV.TVar Int -> Metrics -> KafkaConsumer -> U.InChan (KafkaRecord, (Event alpha)) -> IO ()
+processKafkaMessages' var met kc chan = do
     msg <- pollMessage kc (Timeout 50)
-    newi <- either (\_ -> return i) writeKR msg
-    processKafkaMessages' newi met kc chan
+    either (\_ -> return ()) writeKR msg
+    processKafkaMessages' var met kc chan
       where
         writeKR m =
             let (Just v) = crValue m
             in  either  (\err -> do
-                            print $ "decode-error: " ++ show err
-                            return i)
+                            print $ "decode-error: " ++ show err)
                         (\x -> do
                             PC.inc (_ingressEvents met)
                                 >> PC.add (B.length v) (_ingressBytes met)
-                            U.writeChan chan ((i,m), x { eventId = i})
-                            return (i + 1))
+                            j <- atomically $ do
+                                i <- TV.readTVar var
+                                TV.modifyTVar var (+1)
+                                return  i
+                            U.writeChan chan ((j,m), x { eventId = j}))
                         (decode v)
 
 
@@ -221,3 +226,7 @@ consumerSub topic = topics [topic]
 
 brokerAddress :: KafkaConfig -> T.Text
 brokerAddress conf = T.pack $ (conf ^. kafkaConn . host) ++ ":" ++ (conf ^. kafkaConn . port)
+
+
+defaultTCPConfig :: TCPConfig
+defaultTCPConfig = TCPConfig $ NetConfig "" "9001"

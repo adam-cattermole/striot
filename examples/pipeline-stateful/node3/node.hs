@@ -3,11 +3,18 @@ import Striot.FunctionalIoTtypes
 import Striot.FunctionalProcessing
 import Striot.Nodes
 import Control.Concurrent
+import System.IO
 
 
 sink1 :: Show a => Stream a -> IO ()
-sink1 = mapM_ print
+sink1 s = do
+    hdl <- openFile  "output.txt" WriteMode
+    hSetBuffering hdl NoBuffering
+    mapM_ (hPutStrLn hdl . show) s
 
+
+sink2 :: Show a => Stream a -> IO ()
+sink2 = mapM_ print
 
 streamGraphFn :: Stream Int -> Stream String
 streamGraphFn n1 = let
@@ -17,4 +24,6 @@ streamGraphFn n1 = let
 
 
 main :: IO ()
-main = nodeSink (defaultSink "9001") streamGraphFn sink1
+main = nodeSink (defaultSink "9001") streamGraphFn sink2
+
+

@@ -112,7 +112,7 @@ instance FromEnv StriotConfig where
             <*> readConf INGRESS
             <*> readConf EGRESS
             <*> envMaybe "STRIOT_CHAN_SIZE" .!= 10
-            <*> nc "STRIOT_STATE_" (Just ("redis", "6379"))
+            <*> nc "STRIOT_STATE_" (Just ("striot-redis", "6379"))
             <*> (fst <$> state)
             <*> (snd <$> state)
 

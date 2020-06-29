@@ -3,15 +3,18 @@ module Striot.Nodes.TCP
 , sendStreamTCP
 , sendStreamTCPS
 , processSocket
+, connectTCP'
 ) where
 
 import           Control.Concurrent                       (forkFinally)
+import           Control.Concurrent.STM                   (atomically)
+import           Control.Concurrent.STM.TVar              as TV
 import           Control.Concurrent.Async                 (async)
 import           Control.Concurrent.Chan.Unagi.Bounded    as U
 import qualified Control.Exception                        as E (bracket, catch,
                                                                 evaluate)
 import           Kafka.Consumer                                as KC
-import           Striot.Nodes.Kafka                       (KafkaRecord)                                                                
+import           Striot.Nodes.Kafka.Types                 (KafkaRecord, blankRecord)
 import           Control.Lens
 import           Control.Monad                            (forever)
 import qualified Data.ByteString                          as B (ByteString,
@@ -62,6 +65,24 @@ connectTCP _ conf met chan = do
                         >> close conn)
 
 
+{- connectTCP' is a variant of connectTCP that handles a channel with KR type-}
+connectTCP' :: Store alpha
+           => String
+           -> TCPConfig
+           -> Metrics
+           -> U.InChan (KafkaRecord, Event alpha)
+           -> TV.TVar Int
+           -> IO ()
+connectTCP' _ conf met chan var = do
+    sock <- listenSocket $ conf ^. tcpConn . port
+    forever $ do
+        (conn, _) <- accept sock
+        forkFinally (PG.inc (_ingressConn met)
+                    >> processData' met conn chan var)
+                    (\_ -> PG.dec (_ingressConn met)
+                        >> close conn)
+
+
 {- processData takes a Socket and UChan. All of the events are read through
 use of a ByteBuffer and recv. The events are decoded by using store-streaming
 and added to the chan  -}
@@ -75,6 +96,20 @@ processData met conn eventChan =
                         U.writeChan eventChan $ SS.fromMessage m
             Nothing -> print "decode failed"
 
+{- processData' pairs with connectTCP' -}
+processData' :: Store alpha => Metrics -> Socket -> U.InChan (KafkaRecord, Event alpha) -> TV.TVar Int -> IO ()
+processData' met conn eventChan var =
+    BB.with Nothing $ \buffer -> forever $ do
+        event <- decodeMessageBS' met buffer (readFromSocket conn)
+        case event of
+            Just m  -> do
+                        PC.inc (_ingressEvents met)
+                        j <- atomically $ do
+                            i <- TV.readTVar var
+                            TV.modifyTVar var (+1)
+                            return i
+                        U.writeChan eventChan $ (blankRecord j, SS.fromMessage m)
+            Nothing -> print "decode failed"
 
 {- This is a rewrite of Data.Store.Streaming decodeMessageBS, passing in
 Metrics so that we can calculate ingressBytes while decoding -}

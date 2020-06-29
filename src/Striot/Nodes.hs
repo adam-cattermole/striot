@@ -35,6 +35,7 @@ import           Network.Socket                                (HostName,
                                                                 ServiceName)
 import           Striot.FunctionalIoTtypes
 import           Striot.Nodes.Kafka
+import           Striot.Nodes.Kafka.Types
 import           Striot.Nodes.MQTT
 import           Striot.Nodes.TCP
 import           Striot.Nodes.Types                            hiding (nc,
@@ -311,7 +312,7 @@ defaultState = StriotState "" Nothing
 
 
 defaultStateStore :: NetConfig
-defaultStateStore = NetConfig "redis" "6379"
+defaultStateStore = NetConfig "striot-redis" "6379"
 
 --- INTERNAL OPS ---
 
