@@ -1,0 +1,9 @@
+apiVersion: kafka.strimzi.io/v1beta1
+kind: KafkaTopic
+metadata:
+  name: striot-queue
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  replicas: 1
+  partitions: 64

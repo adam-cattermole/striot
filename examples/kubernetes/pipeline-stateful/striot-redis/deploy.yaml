@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: striot-redis
+  labels:
+    app: striot-redis
+    all: striot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: striot-redis
+  template:
+    metadata:
+      labels:
+        app: striot-redis
+    spec:
+      containers:
+        - name: striot-redis
+          image: redis
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 6379
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: striot-redis
+  labels:
+    app: striot-redis
+    all: striot
+spec:
+  type: ClusterIP
+  ports:
+    - name: striot
+      port: 6379
+  selector:
+    app: striot-redis

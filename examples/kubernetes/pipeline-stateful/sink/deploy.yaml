@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: striot-sink
+  labels:
+    app: striot-sink
+    all: striot
+    striot: monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: striot-sink
+  template:
+    metadata:
+      labels:
+        app: striot-sink
+    spec:
+      containers:
+        - name: striot-sink
+          image: adamcattermole/striot-sink:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9001
+              protocol: TCP
+            - containerPort: 8080
+              name: prom
+              protocol: TCP 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: striot-sink
+  labels:
+    app: striot-sink
+    all: striot
+    striot: monitor
+spec:
+  type: ClusterIP
+  ports:
+    - name: striot
+      port: 9001
+      protocol: TCP
+    - name: prom
+      port: 8080
+  selector:
+    app: striot-sink

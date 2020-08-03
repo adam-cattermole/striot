@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: striot-link2
+  labels:
+    app: striot-link2
+    all: striot
+    striot: monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: striot-link2
+  template:
+    metadata:
+      labels:
+        app: striot-link2
+    spec:
+      containers:
+        - name: striot-link2
+          image: adamcattermole/striot-link:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9001
+              protocol: TCP
+            - containerPort: 8080
+              name: prom
+              protocol: TCP 
+          env:
+            - name: STRIOT_NODE_NAME
+              value: striot-link2
+            - name: STRIOT_INGRESS_TYPE
+              value: KAFKA
+            - name: STRIOT_INGRESS_HOST
+              value: my-cluster-kafka-bootstrap
+            - name: STRIOT_INGRESS_PORT
+              value: "9092"
+            - name: STRIOT_INGRESS_KAFKA_TOPIC
+              value: striot-topic-2ebaeb55-25e9-4442-b365-17ebfea7b4e2
+            - name: STRIOT_INGRESS_KAFKA_CON_GROUP
+              value: striot-con-group
+            - name: STRIOT_EGRESS_TYPE
+              value: TCP
+            - name: STRIOT_EGRESS_HOST
+              value: striot-node-2
+            - name: STRIOT_EGRESS_PORT
+              value: "9001"
+            - name: STRIOT_CHAN_SIZE
+              value: "10"
+            - name: STRIOT_STATE_HOST
+              value: striot-redis
+            - name: STRIOT_STATE_PORT
+              value: "6379"
+            - name: STRIOT_STATE_INIT
+              value: "True"
+            - name: STRIOT_STATE_KEY
+              value: sdj123914k
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: striot-link2
+  labels:
+    app: striot-link2
+    all: striot
+    striot: monitor
+spec:
+  type: ClusterIP
+  ports:
+    - name: striot
+      port: 9001
+      protocol: TCP
+    - name: prom
+      port: 8080
+  selector:
+    app: striot-link2

@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: striot-manage
+  labels:
+    app: striot-manage
+    all: striot
+    striot: monitor
+spec:
+  # replicas: 1
+  # selector:
+  #   matchLabels:
+  #     app: striot-manage
+  template:
+    metadata:
+      labels:
+        app: striot-manage
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: striot-manage
+          image: adamcattermole/striot-manage:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9001
+              protocol: TCP
+            - containerPort: 8080
+              name: prom
+              protocol: TCP 
+          env:
+            - name: STRIOT_NODE_NAME
+              value: striot-manage
+            - name: STRIOT_INGRESS_TYPE
+              value: TCP
+            - name: STRIOT_INGRESS_HOST
+              value: ""
+            - name: STRIOT_INGRESS_PORT
+              value: ""
+            - name: STRIOT_EGRESS_TYPE
+              value: TCP
+            - name: STRIOT_EGRESS_HOST
+              value: striot-node-1
+            - name: STRIOT_EGRESS_PORT
+              value: "9001"
+            # - name: STRIOT_EGRESS_TYPE
+            #   value: KAFKA
+            # - name: STRIOT_EGRESS_HOST
+            #   value: my-cluster-kafka-bootstrap
+            # - name: STRIOT_EGRESS_PORT
+            #   value: "9092"
+            # - name: STRIOT_EGRESS_KAFKA_TOPIC
+            #   value: striot-queue
+            # - name: STRIOT_EGRESS_KAFKA_CON_GROUP
+            #   value: none
+            - name: STRIOT_CHAN_SIZE
+              value: "10"
+  backoffLimit: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: striot-manage
+  labels:
+    app: striot-manage
+    all: striot
+    striot: monitor
+spec:
+  type: ClusterIP
+  ports:
+    - name: striot
+      port: 9001
+      protocol: TCP
+    - name: prom
+      port: 8080
+  selector:
+    app: striot-manage
