@@ -7,8 +7,6 @@ module Striot.Nodes.TCP
 ) where
 
 import           Control.Concurrent                       (forkFinally)
-import           Control.Concurrent.STM                   (atomically)
-import           Control.Concurrent.STM.TVar              as TV
 import           Control.Concurrent.Async                 (async)
 import           Control.Concurrent.Chan.Unagi.Bounded    as U
 import qualified Control.Exception                        as E (bracket, catch,
@@ -71,14 +69,13 @@ connectTCP' :: Store alpha
            -> TCPConfig
            -> Metrics
            -> U.InChan (KafkaRecord, Event alpha)
-           -> TV.TVar Int
            -> IO ()
-connectTCP' _ conf met chan var = do
+connectTCP' _ conf met chan = do
     sock <- listenSocket $ conf ^. tcpConn . port
     forever $ do
         (conn, _) <- accept sock
         forkFinally (PG.inc (_ingressConn met)
-                    >> processData' met conn chan var)
+                    >> processData' met conn chan)
                     (\_ -> PG.dec (_ingressConn met)
                         >> close conn)
 
@@ -97,18 +94,14 @@ processData met conn eventChan =
             Nothing -> print "decode failed"
 
 {- processData' pairs with connectTCP' -}
-processData' :: Store alpha => Metrics -> Socket -> U.InChan (KafkaRecord, Event alpha) -> TV.TVar Int -> IO ()
-processData' met conn eventChan var =
+processData' :: Store alpha => Metrics -> Socket -> U.InChan (KafkaRecord, Event alpha) -> IO ()
+processData' met conn eventChan =
     BB.with Nothing $ \buffer -> forever $ do
         event <- decodeMessageBS' met buffer (readFromSocket conn)
         case event of
             Just m  -> do
                         PC.inc (_ingressEvents met)
-                        j <- atomically $ do
-                            i <- TV.readTVar var
-                            TV.modifyTVar var (+1)
-                            return i
-                        U.writeChan eventChan $ (blankRecord j, SS.fromMessage m)
+                        U.writeChan eventChan $ (blankRecord, SS.fromMessage m)
             Nothing -> print "decode failed"
 
 {- This is a rewrite of Data.Store.Streaming decodeMessageBS, passing in
@@ -156,7 +149,7 @@ writeSocket conn met =
 
 {- Connects to socket within a bracket to ensure the socket is closed if an
 exception occurs. Stateful variant -}
-sendStreamTCPS :: Store alpha => String -> TCPConfig -> Metrics -> (KafkaConsumer, [KafkaRecord]) -> Stream alpha -> IO ()
+sendStreamTCPS :: Store alpha => String -> TCPConfig -> Metrics -> (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
 sendStreamTCPS _ _    _   _  []     = return ()
 sendStreamTCPS _ conf met kset stream =
     E.bracket (PG.inc (_egressConn met)
@@ -168,7 +161,7 @@ sendStreamTCPS _ conf met kset stream =
 
 {- Encode messages and send over the socket. Stateful variant tells Kafka
 we have successfully consumed by committing offsets -}
-writeSocketS :: Store alpha => Socket -> Metrics -> (KafkaConsumer, [KafkaRecord]) -> Stream alpha -> IO ()
+writeSocketS :: Store alpha => Socket -> Metrics -> (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
 writeSocketS conn met (kc, kr) =
     mapM_ (\event -> do
             let val = SS.encodeMessage . SS.Message $ event

@@ -7,8 +7,6 @@ module Striot.Nodes.Kafka
 import           Control.Concurrent                       (threadDelay)
 import           Control.Concurrent.Async                 (async)
 import           Control.Concurrent.Chan.Unagi.Bounded    as U
-import           Control.Concurrent.STM                   (atomically)
-import           Control.Concurrent.STM.TVar              as TV
 import qualified Control.Exception                        as E (bracket)
 import           Control.Lens
 import           Control.Monad                            (forever, void)
@@ -105,10 +103,9 @@ runKafkaConsumer' :: Store alpha
                   -> IO (Either KafkaError KafkaConsumer)
 runKafkaConsumer' name conf met chan = do
     kc <- mkConsumer conf met
-    var <- TV.newTVarIO 0
-    async $ runHandler' met chan var kc
+    async $ runHandler' met chan kc
           >> clConsumer met kc
-    async $ connectTCP' name defaultTCPConfig met chan var
+    async $ connectTCP' name defaultTCPConfig met chan
     return kc
 
 
@@ -156,26 +153,25 @@ processKafkaMessages met kc chan = forever $ do
 runHandler' :: Store alpha
            => Metrics
            -> U.InChan (KafkaRecord, (Event alpha))
-           -> TV.TVar Int
            -> Either KafkaError KafkaConsumer
            -> IO ()
-runHandler' _   _    _   (Left err) = print "error handler close consumer"
+runHandler' _   _    (Left err) = print "error handler close consumer"
                                    >> return ()
-runHandler' met chan var (Right kc) = print "runhandler consumer"
+runHandler' met chan (Right kc) = print "runhandler consumer"
                                    >> threadDelay kafkaConnectDelayMs
                                 -- >> threadDelay 30000000
                                 -- >> pollMessage kc (Timeout 50)
                                 -- >> threadDelay 30000000
-                                   >> processKafkaMessages' var met kc chan
+                                   >> processKafkaMessages' met kc chan
 
 
 
 
-processKafkaMessages' :: Store alpha => TV.TVar Int -> Metrics -> KafkaConsumer -> U.InChan (KafkaRecord, (Event alpha)) -> IO ()
-processKafkaMessages' var met kc chan = do
+processKafkaMessages' :: Store alpha => Metrics -> KafkaConsumer -> U.InChan (KafkaRecord, (Event alpha)) -> IO ()
+processKafkaMessages' met kc chan = forever $ do
     msg <- pollMessage kc (Timeout 50)
     either (\_ -> return ()) writeKR msg
-    processKafkaMessages' var met kc chan
+    -- processKafkaMessages' met kc chan
       where
         writeKR m =
             let (Just v) = crValue m
@@ -184,11 +180,7 @@ processKafkaMessages' var met kc chan = do
                         (\x -> do
                             PC.inc (_ingressEvents met)
                                 >> PC.add (B.length v) (_ingressBytes met)
-                            j <- atomically $ do
-                                i <- TV.readTVar var
-                                TV.modifyTVar var (+1)
-                                return  i
-                            U.writeChan chan ((j,m), x { eventId = j}))
+                            U.writeChan chan (m, x))
                         (decode v)
 
 

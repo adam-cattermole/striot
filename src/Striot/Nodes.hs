@@ -17,6 +17,7 @@ module Striot.Nodes ( nodeSource
                     ) where
 
 import           Control.Concurrent.Async                      (async)
+import           Control.Concurrent                            (threadDelay)
 import           Control.Concurrent.Chan.Unagi.Bounded         as U
 import           Control.Lens
 import           Control.Monad.IO.Class
@@ -96,9 +97,9 @@ nodeLink' :: (Store alpha, Store beta,
 nodeLink' streamOp = do
     c <- ask
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
-    stream <- processInput metrics
+    (stream, kset) <- processInput metrics
     let result = streamOp stream
-    sendStream metrics Nothing result
+    sendStream metrics kset result
 
 
 nodeLinkStateful :: (Store alpha, Store beta, Show gamma, Store gamma)
@@ -127,25 +128,10 @@ nodeLinkStateful' streamOp = do
     liftIO $ print ("init new to : " ++ show acc)
     -- Check that input is KAFKA
     liftIO $ failFalse (matchConfig KAFKA (c ^. ingressConnConfig)) (matchConfig TCP (c ^. egressConnConfig))
-    let ConnKafkaConfig kafkaConf = (c ^. ingressConnConfig)
+    -- process stream
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
-    -- Manually start connection with Kafka so that we can store offsets
-    (metrics, outChan, kc) <- liftIO $ do
-            met <- startPrometheus (c ^. nodeName)
-            (inChan, outChan) <- U.newChan (c ^. chanSize)
-            consumer <- runKafkaConsumer' (c ^. nodeName)
-                                          kafkaConf
-                                          met
-                                          inChan
-            return (met, outChan, either (const Nothing) Just consumer)
-
-    -- Retrieve a stream of both the KafkaRecords (for offset commits)
-    -- and the stream
-    input <- liftIO $ U.getChanContents outChan
-    let kr     = map fst input
-        stream = map snd input
-        kset   = (,) <$> kc <*> pure kr
-
+    (stream, kset) <- processInput metrics
+    -- perform streamop
     result <- streamOp stream
     sendStream metrics kset result
     -- If the stream ever ends we know that the acc must have been set
@@ -153,6 +139,7 @@ nodeLinkStateful' streamOp = do
     liftIO $ print acc
     -- Store the state in redis
     storeState
+    liftIO $ threadDelay (1000*1000*120)
     liftIO $ exitImmediately ExitSuccess
     where
         failFalse False _     = print "No incoming KAFKA connection" >> exitFailure
@@ -208,7 +195,8 @@ nodeSink' :: (Store alpha, Store beta,
 nodeSink' streamOp iofn = do
     c <- ask
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
-    stream <- processInput metrics
+    -- should manually commit offsets once processed by iofn
+    (stream, _) <- processInput metrics
     let result = streamOp stream
     liftIO $ iofn result
 
@@ -321,8 +309,8 @@ processInput :: (Store alpha,
                 HasStriotConfig r,
                 MonadIO m)
              => Metrics
-             -> m (Stream alpha)
-processInput metrics = connectDispatch metrics >>= (liftIO . U.getChanContents)
+             -> m (Stream alpha, Maybe (KafkaConsumer, [(Int, KafkaRecord)]))
+processInput metrics = connectDispatch metrics
 
 
 connectDispatch :: (Store alpha,
@@ -330,16 +318,13 @@ connectDispatch :: (Store alpha,
                    HasStriotConfig r,
                    MonadIO m)
                 => Metrics
-                -> m (U.OutChan (Event alpha))
+                -> m (Stream alpha, Maybe (KafkaConsumer, [(Int, KafkaRecord)]))
 connectDispatch metrics = do
     c <- ask
-    liftIO $ do
-        (inChan, outChan) <- U.newChan (c ^. chanSize)
-        async $ connectDispatch' (c ^. nodeName)
-                                 (c ^. ingressConnConfig)
-                                 metrics
-                                 inChan
-        return outChan
+    liftIO $ connectDispatch' (c ^. nodeName)
+                              (c ^. ingressConnConfig)
+                              metrics
+                              (c ^. chanSize)
 
 
 connectDispatch' :: (Store alpha,
@@ -347,11 +332,28 @@ connectDispatch' :: (Store alpha,
                  => String
                  -> ConnectionConfig
                  -> Metrics
-                 -> U.InChan (Event alpha)
-                 -> m ()
-connectDispatch' name (ConnTCPConfig   cc) met chan = liftIO $ connectTCP       name cc met chan
-connectDispatch' name (ConnKafkaConfig cc) met chan = liftIO $ runKafkaConsumer name cc met chan
-connectDispatch' name (ConnMQTTConfig  cc) met chan = liftIO $ runMQTTSub       name cc met chan
+                 -> Int
+                 -> m (Stream alpha, Maybe (KafkaConsumer, [(Int, KafkaRecord)]))
+connectDispatch' name (ConnTCPConfig   cc) met chanSize =
+    liftIO $ do
+        (inChan, outChan) <- U.newChan chanSize
+        async $ connectTCP name cc met inChan
+        stream <- U.getChanContents outChan
+        return (stream, Nothing)
+connectDispatch' name (ConnKafkaConfig cc) met chanSize = do
+    liftIO $ do
+        (inChan, outChan) <- U.newChan chanSize
+        consumer <- runKafkaConsumer' name cc met inChan
+        (stream, kr) <- extractMessages outChan
+        let kc = either (const Nothing) Just consumer
+        return (stream, (,) <$> kc <*> pure kr)
+        -- runKafkaConsumer name cc met chan
+connectDispatch' name (ConnMQTTConfig  cc) met chanSize =
+    liftIO $ do
+        (inChan, outChan) <- U.newChan chanSize
+        async $ runMQTTSub name cc met inChan
+        stream <- U.getChanContents outChan
+        return (stream, Nothing)
 
 
 sendStream :: (Store alpha,
@@ -359,7 +361,7 @@ sendStream :: (Store alpha,
               HasStriotConfig r,
               MonadIO m)
            => Metrics
-           -> Maybe (KafkaConsumer, [KafkaRecord])
+           -> Maybe (KafkaConsumer, [(Int, KafkaRecord)])
            -> Stream alpha
            -> m ()
 sendStream metrics kset stream = do
@@ -377,7 +379,7 @@ sendDispatch :: (Store alpha,
              => String
              -> ConnectionConfig
              -> Metrics
-             -> Maybe (KafkaConsumer, [KafkaRecord])
+             -> Maybe (KafkaConsumer, [(Int, KafkaRecord)])
              -> Stream alpha
              -> m ()
 sendDispatch name (ConnTCPConfig   cc) met (Just kset) stream = liftIO $ sendStreamTCPS   name cc met kset stream
@@ -403,6 +405,18 @@ readListFromSource = go 0
             now <- getCurrentTime
             Event i Nothing (Just now) . Just <$> pay
 
+
+extractMessages :: U.OutChan (KafkaRecord, Event alpha) -> IO (Stream alpha, [(Int, KafkaRecord)])
+extractMessages outChan = do
+    -- Retrieve a stream of both the KafkaRecords (for offset commits)
+    -- and the stream
+    input <- liftIO $ U.getChanContents outChan
+    let mapped = assignIds 0 input
+    let kr     = map fst mapped
+        stream = map snd mapped
+    return (stream, kr)
+    where
+        assignIds i ((x,y):xs) = ((i, x), y {eventId = i}) : assignIds (i+1) xs
 
 --- PROMETHEUS ---
 
