@@ -4,6 +4,7 @@
 module Striot.FunctionalProcessing ( streamFilter
                                    , streamMap
                                    , streamWindow
+                                   , streamWindowM
                                    , streamWindowAggregate
                                    , streamMerge
                                    , streamJoin
@@ -17,9 +18,13 @@ module Striot.FunctionalProcessing ( streamFilter
                                    , WindowMaker
                                    , WindowAggregator
                                    , sliding
+                                   , slidingM
                                    , slidingTime
+                                   , slidingTimeM
                                    , chop
+                                   , chopM
                                    , chopTime
+                                   , chopTimeM
                                    , complete
                                    , EventFilter
                                    , EventMap
@@ -59,6 +64,7 @@ streamMap fm s = map (\(Event i m t v) -> case v of
 
 -- create and aggregate windows
 type WindowMaker alpha = Stream alpha -> [Stream alpha]
+type WindowMakerM m alpha = Stream alpha -> m [Stream alpha]
 type WindowAggregator alpha beta = [alpha] -> beta
 
 streamWindow :: WindowMaker alpha -> Stream alpha -> Stream [alpha]
@@ -71,6 +77,212 @@ streamWindow fwm s = mapWindowId (fwm s)
                      case x of
                          Event i m t _ : _ -> Event i m         t       (Just (getVals x)) : mapWindowId xs
                          []                -> Event 0 Nothing   Nothing (Just [])          : mapWindowId xs
+                        --  Event i (Just m) t _ : _ -> []
+                        --  Event i Nothing  t _ : _ -> Event i Nothing   t       (Just (getVals x)) : mapWindowId xs
+
+streamWindowM :: (MonadState s m,
+                 HasStriotState s (Stream alpha),
+                 MonadIO m,
+                 MonadBaseControl IO m)
+              => WindowMakerM m alpha -> Stream alpha -> m (Stream [alpha])
+streamWindowM fwm s = mapWindowId <$> (fwm s)
+            where getVals :: Stream alpha -> [alpha]
+                  getVals s' = map (\(Event _ _ _ (Just val))->val) $ filter dataEvent s'
+                  -- set timestamp to id of last event in the window
+                  mapWindowId :: [Stream alpha] -> Stream [alpha]
+                  mapWindowId [] = []
+                  mapWindowId (x:xs) =
+                      case x of
+                        [] -> Event 0 Nothing   Nothing (Just [])          : mapWindowId xs
+                        _  -> let l = last x
+                              in  Event (eventId l) (manage l) (time l) (Just (getVals x)) : mapWindowId xs
+
+-- chopM :: (MonadState s m,
+--           HasStriotState s [alpha],
+--           MonadIO m,
+--           MonadBaseControl IO m)
+--       => Int -> WindowMakerM m alpha
+-- chopM wLength s = chop' wLength s
+--      where  chop' wLength [] = []
+--             chop' wLength s  = do
+--                 let w@(xs,xs') = span (not . manageEvent) $ take wLength s
+--                 case xs' of
+--                     [] -> unsafeInterleaveLiftedIO $ (w :) <$> chop' wLength (drop wLength s)
+--                     _  ->
+                            --  in  w:(chop' wLength r)
+
+chopM :: (MonadState s m,
+          HasStriotState s (Stream alpha),
+          MonadIO m,
+          MonadBaseControl IO m)
+      => Int -> WindowMakerM m alpha
+chopM wLength s = do
+    state <- get
+    case (state ^. accValue) of
+        Nothing -> chopM' wLength [] s
+        Just v  -> let pw = map (\x -> x { eventId = 0 }) v
+                   in  chopM' wLength pw s
+
+chopM' :: (MonadState s m,
+          HasStriotState s (Stream alpha),
+          MonadIO m,
+          MonadBaseControl IO m)
+      => Int -> Stream alpha -> WindowMakerM m alpha
+chopM' wLength pw s = do
+    (w, xs, check) <- takeM wLength pw s
+    case check of
+        False -> unsafeInterleaveLiftedIO
+               $ (w :)
+              <$> chopM' wLength [] xs
+        True  -> return [w]
+
+
+slidingM :: (MonadState s m,
+            HasStriotState s (Stream alpha),
+            MonadIO m,
+            MonadBaseControl IO m)
+         => Int -> WindowMakerM m alpha
+slidingM wLength s = do
+    state <- get
+    case (state ^. accValue) of
+        Nothing -> slidingM' wLength [] s
+        Just v  -> let pw = map (\x -> x { eventId = 0 }) v
+                   in  slidingM' wLength pw s
+
+
+slidingM' :: (MonadState s m,
+            HasStriotState s (Stream alpha),
+            MonadIO m,
+            MonadBaseControl IO m)
+         => Int -> Stream alpha -> WindowMakerM m alpha
+slidingM' wLength [] s@(_:xs) = do
+    (w, _, check) <- takeM wLength [] s
+    case check of
+        False -> unsafeInterleaveLiftedIO
+               $ (w :)
+              <$> slidingM' wLength [] xs
+        True  -> return [w]
+slidingM' wLength pw s = do
+    (w, _, check) <- takeM wLength pw s
+    case check of
+        False -> unsafeInterleaveLiftedIO
+               $ (w :)
+              <$> slidingM' wLength (reverse . tail . reverse $ pw) s
+        True  -> return [w]
+
+
+chopTimeM :: (MonadState s m,
+              HasStriotState s (Stream alpha),
+              MonadIO m,
+              MonadBaseControl IO m)
+           => Int -> WindowMakerM m alpha
+chopTimeM tLength s = do
+    state <- get
+    case (state ^. accValue) of
+        Nothing -> chopTimeM' tLength [] s
+        Just v  -> let pw = map (\x -> x { eventId = 0 }) v
+                   in  chopTimeM' tLength pw s
+
+
+chopTimeM' :: (MonadState s m,
+              HasStriotState s (Stream alpha),
+              MonadIO m,
+              MonadBaseControl IO m)
+           => Int -> Stream alpha -> WindowMakerM m alpha
+chopTimeM' tLength pw s = do
+    (w, xs, check) <- takeTimeM tLength pw s
+    case check of
+        False -> unsafeInterleaveLiftedIO
+               $ (w :)
+              <$> chopTimeM' tLength [] xs
+        True  -> return [w]
+
+
+slidingTimeM :: (MonadState s m,
+                HasStriotState s (Stream alpha),
+                MonadIO m,
+                MonadBaseControl IO m)
+             => Int -> WindowMakerM m alpha
+slidingTimeM tLength s = do
+    state <- get
+    case (state ^. accValue) of
+        Nothing -> slidingTimeM' tLength [] s
+        Just v  -> let pw = map (\x -> x { eventId = 0 }) v
+                   in  slidingTimeM' tLength pw s
+
+
+slidingTimeM' :: (MonadState s m,
+                 HasStriotState s (Stream alpha),
+                 MonadIO m,
+                 MonadBaseControl IO m)
+              => Int -> Stream alpha -> WindowMakerM m alpha
+slidingTimeM' tLength [] s@(_:xs) = do
+    (w, _, check) <- takeTimeM tLength [] s
+    case check of
+        False -> unsafeInterleaveLiftedIO
+               $ (w :)
+              <$> slidingTimeM' tLength [] xs
+        True  -> return [w]
+slidingTimeM' tLength pw s = do
+    (w, _, check) <- takeTimeM tLength pw s
+    case check of
+        False -> unsafeInterleaveLiftedIO
+               $ (w :)
+              <$> slidingTimeM' tLength (reverse . tail . reverse $ pw) s
+        True  -> return [w]
+
+
+takeM :: (MonadState s m,
+          HasStriotState s (Stream alpha),
+          MonadIO m,
+          MonadBaseControl IO m)
+       => Int -> Stream alpha -> Stream alpha -> m (Stream alpha, Stream alpha, Bool)
+takeM n w = takeM' (n - length w) w
+
+takeM' :: (MonadState s m,
+          HasStriotState s (Stream alpha),
+          MonadIO m,
+          MonadBaseControl IO m)
+       => Int -> Stream alpha -> Stream alpha -> m (Stream alpha, Stream alpha, Bool)
+takeM' n w s | n <= 0 = return (reverse w, s, False)
+takeM' _ w []         = return (reverse w, [], False)
+takeM' _ w (Event i (Just m) t v : r)
+    =  accKey   .= m
+    >> accValue .= Just w
+    >> return ([Event i (Just m) Nothing Nothing], [], True)
+takeM' n w (e@(Event i Nothing t (Just v)) : r)
+    = takeM' (n-1) (e:w) r
+takeM' n w (Event i Nothing t Nothing : r)
+    = takeM' n w r
+
+
+takeTimeM :: (MonadState s m,
+             HasStriotState s (Stream alpha),
+             MonadIO m,
+             MonadBaseControl IO m)
+          => Int -> Stream alpha -> Stream alpha -> m (Stream alpha, Stream alpha, Bool)
+takeTimeM tLength [] s@(Event _ _ (Just tStart) _ : _)
+    = let tEnd = addUTCTime (milliToTimeDiff tLength) tStart
+      in  takeTimeM' tEnd [] s
+takeTimeM tLength w s
+    = let Just tStart = time . last $ w
+          tEnd = addUTCTime (milliToTimeDiff tLength) tStart
+      in  takeTimeM' tEnd w s
+
+takeTimeM' :: (MonadState s m,
+              HasStriotState s (Stream alpha),
+              MonadIO m,
+              MonadBaseControl IO m)
+           => UTCTime -> Stream alpha -> Stream alpha -> m (Stream alpha, Stream alpha, Bool)
+takeTimeM' _ w [] = return (reverse w, [], False)
+takeTimeM' _ w (Event i (Just m) t v : r)
+    =  accKey   .= m
+    >> accValue .= Just w
+    >> return ([Event i (Just m) Nothing Nothing], [], True)
+takeTimeM' ets w s@(e@(Event i Nothing (Just ts) v) : r)
+    | ts < ets  = takeTimeM' ets (e:w) r
+    | otherwise = return (reverse w, s, False)
+
 
 -- a useful function building on streamWindow and streamMap
 streamWindowAggregate :: WindowMaker alpha -> WindowAggregator alpha beta -> Stream alpha -> Stream beta
