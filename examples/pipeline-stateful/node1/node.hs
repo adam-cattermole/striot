@@ -17,9 +17,13 @@ streamGraphFn n1 = let
     in n2
 
 
+streamGraphFn' :: Stream String -> Stream Int
+streamGraphFn' = streamScan (\acc _ -> (+1) acc) (-1)
+
+
 main :: IO ()
 main = do
     conf <- decodeEnv :: IO (Either String StriotConfig)
     case conf of
         Left _  -> print "Could not read from env"
-        Right c -> nodeSource c src1 streamGraphFn
+        Right c -> nodeSource c src1 streamGraphFn'

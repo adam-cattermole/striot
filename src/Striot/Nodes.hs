@@ -48,7 +48,7 @@ import           System.IO.Unsafe
 import           System.Metrics.Prometheus.Concurrent.Registry as PR (new, registerCounter,
                                                                       registerGauge,
                                                                       sample)
-import           System.Metrics.Prometheus.Http.Scrape         (serveHttpTextMetrics)
+import           System.Metrics.Prometheus.Http.Scrape         (serveMetrics)
 import           System.Metrics.Prometheus.Metric.Counter      as PC (inc)
 import           System.Metrics.Prometheus.MetricId            (addLabel)
 import qualified Database.Redis                                as R
@@ -139,7 +139,7 @@ nodeLinkStateful' streamOp = do
     liftIO $ print acc
     -- Store the state in redis
     storeState
-    liftIO $ threadDelay (1000*1000*120)
+    -- liftIO $ threadDelay (1000*1000*120)
     liftIO $ exitImmediately ExitSuccess
     where
         failFalse False _     = print "No incoming KAFKA connection" >> exitFailure
@@ -427,7 +427,7 @@ startPrometheus name = do
         registerFn fn mName = fn mName lbl reg
         rg = registerFn registerGauge
         rc = registerFn registerCounter
-    async $ serveHttpTextMetrics 8080 ["metrics"] (PR.sample reg)
+    async $ serveMetrics 8080 ["metrics"] (PR.sample reg)
     Metrics
         <$> rg "striot_ingress_connection"
         <*> rc "striot_ingress_bytes_total"

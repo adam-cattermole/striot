@@ -23,7 +23,13 @@ streamGraphFn n1 = let
     in n2
 
 
+streamGraphFn' :: Stream [Int] -> Stream String
+streamGraphFn' n1 = let
+    n2 = (\s -> streamMap (\st->"Incoming Message at Server: " ++ show st) s) n1
+    -- n3 = (\s -> streamWindow (chop 2) s) n2
+    in n2
+
 main :: IO ()
-main = nodeSink (defaultSink "9001") streamGraphFn sink2
+main = nodeSink (defaultSink "9001") streamGraphFn' sink2
 
 
