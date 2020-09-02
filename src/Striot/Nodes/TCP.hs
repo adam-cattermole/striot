@@ -162,15 +162,16 @@ sendStreamTCPS _ conf met kset stream =
 {- Encode messages and send over the socket. Stateful variant tells Kafka
 we have successfully consumed by committing offsets -}
 writeSocketS :: Store alpha => Socket -> Metrics -> (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
-writeSocketS conn met (kc, kr) =
-    mapM_ (\event -> do
+writeSocketS conn met (kc, kr) stream =
+    let out = map tailManage stream
+    in  mapM_ (\event -> do
             let val = SS.encodeMessage . SS.Message $ event
                 -- get all KafkaRecord structures <= current eventId
                 rtc = map snd $ takeWhile (\x -> eventId event >= fst x) kr
             PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
                 >> sendAll conn val
-            mapM_ (commitOffsetMessage OffsetCommitAsync kc) rtc)
+            mapM_ (commitOffsetMessage OffsetCommitAsync kc) rtc) out
 
 
 --- SOCKETS ---

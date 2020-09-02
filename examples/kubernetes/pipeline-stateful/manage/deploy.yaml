@@ -17,6 +17,15 @@ spec:
         app: striot-manage
     spec:
       restartPolicy: Never
+      # affinity:
+      #   nodeAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       nodeSelectorTerms:
+      #         - matchExpressions:
+      #           - key: node-restriction.kubernetes.io/edge
+      #             operator: NotIn
+      #             values:
+      #             - "true"
       containers:
         - name: striot-manage
           image: adamcattermole/striot-manage:latest
@@ -36,22 +45,22 @@ spec:
               value: ""
             - name: STRIOT_INGRESS_PORT
               value: ""
-            - name: STRIOT_EGRESS_TYPE
-              value: TCP
-            - name: STRIOT_EGRESS_HOST
-              value: striot-node-1
-            - name: STRIOT_EGRESS_PORT
-              value: "9001"
             # - name: STRIOT_EGRESS_TYPE
-            #   value: KAFKA
+            #   value: TCP
             # - name: STRIOT_EGRESS_HOST
-            #   value: my-cluster-kafka-bootstrap
+            #   value: striot-node-1
             # - name: STRIOT_EGRESS_PORT
-            #   value: "9092"
-            # - name: STRIOT_EGRESS_KAFKA_TOPIC
-            #   value: striot-queue
-            # - name: STRIOT_EGRESS_KAFKA_CON_GROUP
-            #   value: none
+            #   value: "9001"
+            - name: STRIOT_EGRESS_TYPE
+              value: KAFKA
+            - name: STRIOT_EGRESS_HOST
+              value: my-cluster-kafka-bootstrap
+            - name: STRIOT_EGRESS_PORT
+              value: "9092"
+            - name: STRIOT_EGRESS_KAFKA_TOPIC
+              value: striot-topic-cf8c278f-3844-4834-866e-74bbc988cced
+            - name: STRIOT_EGRESS_KAFKA_CON_GROUP
+              value: none
             - name: STRIOT_CHAN_SIZE
               value: "10"
   backoffLimit: 1

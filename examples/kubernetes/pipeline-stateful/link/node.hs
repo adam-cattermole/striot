@@ -17,6 +17,7 @@ streamGraphFnM :: (MonadState s m,
                   MonadBaseControl IO m)
                => Stream String -> m (Stream Int)
 streamGraphFnM = streamScanM (\acc _ -> (+5) acc) (-1)
+-- streamGraphFnM = streamWindowM chopM 10
 -- (-1) matches the IDs of the messages
 -- setting to 0 shows an actual counter of how many messages we received (assuming succ)
 

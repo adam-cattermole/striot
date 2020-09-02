@@ -1,4 +1,4 @@
-FROM adamcattermole/striot-base-arm:8.8.1-large
+FROM adamcattermole/striot-base:latest
 WORKDIR /opt/node
 COPY . /opt/node
 

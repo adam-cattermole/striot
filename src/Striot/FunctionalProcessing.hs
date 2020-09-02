@@ -247,7 +247,7 @@ takeM' :: (MonadState s m,
 takeM' n w s | n <= 0 = return (reverse w, s, False)
 takeM' _ w []         = return (reverse w, [], False)
 takeM' _ w (Event i (Just m) t v : r)
-    =  accKey   .= m
+    =  accKey   .= head m
     >> accValue .= Just w
     >> return ([Event i (Just m) Nothing Nothing], [], True)
 takeM' n w (e@(Event i Nothing t (Just v)) : r)
@@ -276,7 +276,7 @@ takeTimeM' :: (MonadState s m,
            => UTCTime -> Stream alpha -> Stream alpha -> m (Stream alpha, Stream alpha, Bool)
 takeTimeM' _ w [] = return (reverse w, [], False)
 takeTimeM' _ w (Event i (Just m) t v : r)
-    =  accKey   .= m
+    =  accKey   .= head m
     >> accValue .= Just w
     >> return ([Event i (Just m) Nothing Nothing], [], True)
 takeTimeM' ets w s@(e@(Event i Nothing (Just ts) v) : r)
@@ -430,7 +430,7 @@ streamScanM' :: (MonadState s m,
              -> m (Stream beta)
 streamScanM' _  _ [] = return []
 streamScanM' mf acc (Event i (Just m) t v : r)
-    =  accKey   .= m
+    =  accKey   .= head m
     >> accValue .= Just acc
     >> return [Event i (Just m) Nothing Nothing]
 streamScanM' mf acc (Event i m t (Just v) : r)
@@ -471,7 +471,7 @@ streamFilterAccM' :: (MonadState s m,
                   -> m (Stream alpha)
 streamFilterAccM' _ _ _ [] = return []
 streamFilterAccM' _ acc _ (Event i (Just m) _ _ : r)
-    =  accKey   .= m
+    =  accKey   .= head m
     >> accValue .= Just acc
     >> return [Event i (Just m) Nothing Nothing]
 streamFilterAccM' accfn acc ff (e@(Event _ _ _ (Just v)):r)

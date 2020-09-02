@@ -16,9 +16,18 @@ spec:
       labels:
         app: striot-link2
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: node-restriction.kubernetes.io/edge
+                  operator: In
+                  values:
+                  - "true"
       containers:
         - name: striot-link2
-          image: adamcattermole/striot-link:latest
+          image: adamcattermole/striot-link:8.8.1-arm
           imagePullPolicy: Always
           ports:
             - containerPort: 9001
@@ -36,7 +45,7 @@ spec:
             - name: STRIOT_INGRESS_PORT
               value: "9092"
             - name: STRIOT_INGRESS_KAFKA_TOPIC
-              value: striot-topic-2ebaeb55-25e9-4442-b365-17ebfea7b4e2
+              value: striot-topic-bb38866e-78a1-4996-9b0c-66870fc642d0
             - name: STRIOT_INGRESS_KAFKA_CON_GROUP
               value: striot-con-group
             - name: STRIOT_EGRESS_TYPE

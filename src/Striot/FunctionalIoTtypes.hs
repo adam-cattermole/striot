@@ -5,7 +5,7 @@ import           Data.Time    (UTCTime)
 import           GHC.Generics (Generic)
 
 data Event alpha = Event { eventId :: Int
-                         , manage  :: Maybe String
+                         , manage  :: Maybe [String]
                          , time    :: Maybe Timestamp
                          , value   :: Maybe alpha
                          }
@@ -27,3 +27,9 @@ timedEvent (Event i m Nothing  v) = False
 manageEvent :: Event alpha -> Bool
 manageEvent (Event i (Just m) t v) = True
 manageEvent (Event i Nothing  t v) = False
+
+tailManage :: Store alpha => Event alpha -> Event alpha
+tailManage e@(Event _ Nothing _ _) = e
+tailManage e@(Event _ (Just m) _ _)
+    | tail m == [] = e { manage = Nothing }
+    | otherwise    = e { manage = Just $ tail m } 
