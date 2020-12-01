@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 module Striot.Nodes ( nodeSource
+                    , nodeSourceC
                     , nodeLink
                     , nodeLinkStateful
                     , nodeLink2
@@ -80,6 +81,29 @@ nodeSource' iofn streamOp = do
     sendStream metrics Nothing result
 
 
+nodeSourceC :: (Store alpha, Store beta)
+           => StriotConfig
+           -> IO (Stream alpha)
+           -> (Stream alpha -> Stream beta)
+           -> IO ()
+nodeSourceC config iostream streamOp =
+    runReaderT (unStriotApp $ nodeSourceC' iostream streamOp) config
+
+
+nodeSourceC' :: (Store alpha, Store beta,
+               MonadReader r m,
+               HasStriotConfig r,
+               MonadIO m)
+            => IO (Stream alpha)
+            -> (Stream alpha -> Stream beta) -> m ()
+nodeSourceC' iostream streamOp = do
+    c <- ask
+    metrics <- liftIO $ startPrometheus (c ^. nodeName)
+    stream <- liftIO $ iostream
+    let result = streamOp stream
+    sendStream metrics Nothing result
+
+
 nodeLink :: (Store alpha, Store beta)
          => StriotConfig
          -> (Stream alpha -> Stream beta)
@@ -123,7 +147,7 @@ nodeLinkStateful' streamOp = do
     c <- ask
     case (c ^. stateInit) of
         True      -> retrieveState (c ^. stateKey)
-        otherwise -> return ()
+        _         -> return ()
     acc <- get
     liftIO $ print ("init new to : " ++ show acc)
     -- Check that input is KAFKA
@@ -139,8 +163,10 @@ nodeLinkStateful' streamOp = do
     liftIO $ print acc
     -- Store the state in redis
     storeState
+    m <- closeConsumer $ fst . fromJust $ kset
+    liftIO $ print m
     -- liftIO $ threadDelay (1000*1000*120)
-    liftIO $ exitImmediately ExitSuccess
+    -- liftIO $ exitImmediately ExitSuccess
     where
         failFalse False _     = print "No incoming KAFKA connection" >> exitFailure
         failFalse _     False = print "No outgoing KAFKA connection" >> exitFailure
@@ -173,7 +199,7 @@ nodeLink2 streamOp inputPort1 inputPort2 outputHost outputPort = do
     stream1 <- processSocket nodeName ic1 metrics
     stream2 <- processSocket nodeName ic2 metrics
     let result = streamOp stream1 stream2
-    sendStreamTCP nodeName ec metrics result
+    sendStreamTCP nodeName ec metrics Nothing result
 
 
 nodeSink :: (Store alpha, Store beta)
@@ -382,14 +408,12 @@ sendDispatch :: (Store alpha,
              -> Maybe (KafkaConsumer, [(Int, KafkaRecord)])
              -> Stream alpha
              -> m ()
-sendDispatch name (ConnTCPConfig   cc) met (Just kset) stream = liftIO $ sendStreamTCPS   name cc met kset stream
-sendDispatch name (ConnTCPConfig   cc) met Nothing     stream = liftIO $ sendStreamTCP    name cc met      stream
-sendDispatch name (ConnKafkaConfig cc) met _           stream = liftIO $ sendStreamKafka  name cc met      stream
-sendDispatch name (ConnMQTTConfig  cc) met _           stream = liftIO $ sendStreamMQTT   name cc met      stream
--- sendDispatch name (ConnKafkaConfig cc) met (Just kc) stream = liftIO $ sendStreamKafkaS name cc met stream
--- sendDispatch name (ConnKafkaConfig cc) met Nothing   stream = liftIO $ sendStreamKafka  name cc met stream
--- sendDispatch name (ConnMQTTConfig  cc) met (Just kc) stream = liftIO $ sendStreamMQTTS  name cc met stream
--- sendDispatch name (ConnMQTTConfig  cc) met Nothing   stream = liftIO $ sendStreamMQTT   name cc met stream
+sendDispatch name (ConnTCPConfig   cc) met kset stream = liftIO $ sendStreamTCP   name cc met kset stream
+sendDispatch name (ConnKafkaConfig cc) met kset stream = liftIO $ sendStreamKafka name cc met kset stream
+sendDispatch name (ConnMQTTConfig  cc) met _    stream = liftIO $ sendStreamMQTT  name cc met      stream
+-- sendDispatch name (ConnTCPConfig   cc) met (Just kset) stream = liftIO $ sendStreamTCPS   name cc met kset stream
+-- sendDispatch name (ConnKafkaConfig cc) met (Just kset) stream = liftIO $ sendStreamKafkaS name cc met kset stream
+-- sendDispatch name (ConnMQTTConfig  cc) met (Just kset) stream = liftIO $ sendStreamMQTTS  name cc met kset stream
 
 
 readListFromSource :: IO alpha -> Metrics -> IO (Stream alpha)

@@ -1,7 +1,7 @@
 module Striot.Nodes.TCP
 ( connectTCP
 , sendStreamTCP
-, sendStreamTCPS
+-- , sendStreamTCPS
 , processSocket
 , connectTCP'
 ) where
@@ -127,51 +127,73 @@ readFromSocket conn = do
 
 {- Connects to socket within a bracket to ensure the socket is closed if an
 exception occurs -}
-sendStreamTCP :: Store alpha => String -> TCPConfig -> Metrics -> Stream alpha -> IO ()
-sendStreamTCP _ _    _   []     = return ()
-sendStreamTCP _ conf met stream =
+sendStreamTCP :: Store alpha => String -> TCPConfig -> Metrics -> Maybe (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
+sendStreamTCP _ _    _   _       []     = return ()
+sendStreamTCP _ conf met kset stream =
     E.bracket (PG.inc (_egressConn met)
                >> connectSocket (conf ^. tcpConn . host) (conf ^. tcpConn . port))
               (\conn -> PG.dec (_egressConn met)
                         >> close conn)
-              (\conn -> writeSocket conn met stream)
+              (\conn -> writeSocket conn met kset stream)
 
 
 {- Encode messages and send over the socket -}
-writeSocket :: Store alpha => Socket -> Metrics -> Stream alpha -> IO ()
-writeSocket conn met =
+writeSocket :: Store alpha => Socket -> Metrics -> Maybe (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
+writeSocket conn met Nothing stream =
     mapM_ (\event ->
             let val = SS.encodeMessage . SS.Message $ event
             in  PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
-                >> sendAll conn val)
+                >> sendAll conn val) stream
+-- writeSocket conn met (Just (kc, kr)) stream =
+--     mapM_ (\event -> do
+--         let val = SS.encodeMessage . SS.Message . tailManage $ event
+--             -- get all KafkaRecord structures <= current eventId
+--             rtc = map snd $ takeWhile (\x -> eventId event >= fst x) kr
+--         PC.inc (_egressEvents met)
+--             >> PC.add (B.length val) (_egressBytes met)
+--             >> sendAll conn val
+--         -- mapM_ (commitOffsetMessage OffsetCommitAsync kc) rtc) out
+--         mapM_ (storeOffsetMessage kc) rtc) stream
+writeSocket conn met (Just (kc, kr)) (event:xs) = do
+    let val = SS.encodeMessage . SS.Message . tailManage $ event
+        (artc,rest) = span (\x -> eventId event >= fst x) kr
+        rtc = map snd artc
+    PC.inc (_egressEvents met)
+        >> PC.add (B.length val) (_egressBytes met)
+        >> sendAll conn val
+    mapM_ (storeOffsetMessage kc) rtc
+    writeSocket conn met (Just (kc, rest)) xs
+
+
 
 
 {- Connects to socket within a bracket to ensure the socket is closed if an
 exception occurs. Stateful variant -}
-sendStreamTCPS :: Store alpha => String -> TCPConfig -> Metrics -> (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
-sendStreamTCPS _ _    _   _  []     = return ()
-sendStreamTCPS _ conf met kset stream =
-    E.bracket (PG.inc (_egressConn met)
-               >> connectSocket (conf ^. tcpConn . host) (conf ^. tcpConn . port))
-              (\conn -> PG.dec (_egressConn met)
-                        >> close conn)
-              (\conn -> writeSocketS conn met kset stream)
+-- sendStreamTCPS :: Store alpha => String -> TCPConfig -> Metrics -> (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
+-- sendStreamTCPS _ _    _   _  []     = return ()
+-- sendStreamTCPS _ conf met kset stream =
+--     E.bracket (PG.inc (_egressConn met)
+--                >> connectSocket (conf ^. tcpConn . host) (conf ^. tcpConn . port))
+--               (\conn -> PG.dec (_egressConn met)
+--                         >> close conn)
+--               (\conn -> writeSocketS conn met kset stream)
 
 
 {- Encode messages and send over the socket. Stateful variant tells Kafka
 we have successfully consumed by committing offsets -}
-writeSocketS :: Store alpha => Socket -> Metrics -> (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
-writeSocketS conn met (kc, kr) stream =
-    let out = map tailManage stream
-    in  mapM_ (\event -> do
-            let val = SS.encodeMessage . SS.Message $ event
-                -- get all KafkaRecord structures <= current eventId
-                rtc = map snd $ takeWhile (\x -> eventId event >= fst x) kr
-            PC.inc (_egressEvents met)
-                >> PC.add (B.length val) (_egressBytes met)
-                >> sendAll conn val
-            mapM_ (commitOffsetMessage OffsetCommitAsync kc) rtc) out
+-- writeSocketS :: Store alpha => Socket -> Metrics -> (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
+-- writeSocketS conn met (kc, kr) stream =
+--     let out = map tailManage stream
+--     in  mapM_ (\event -> do
+--             let val = SS.encodeMessage . SS.Message $ event
+--                 -- get all KafkaRecord structures <= current eventId
+--                 rtc = map snd $ takeWhile (\x -> eventId event >= fst x) kr
+--             PC.inc (_egressEvents met)
+--                 >> PC.add (B.length val) (_egressBytes met)
+--                 >> sendAll conn val
+--             -- mapM_ (commitOffsetMessage OffsetCommitAsync kc) rtc) out
+--             mapM_ (storeOffsetMessage kc) rtc) out
 
 
 --- SOCKETS ---

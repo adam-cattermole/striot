@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Striot.Nodes.Kafka
 ( sendStreamKafka
 , runKafkaConsumer
@@ -25,8 +26,8 @@ import           System.Metrics.Prometheus.Metric.Counter as PC (add, inc)
 import           System.Metrics.Prometheus.Metric.Gauge   as PG (dec, inc)
 
 
-sendStreamKafka :: Store alpha => String -> KafkaConfig -> Metrics -> Stream alpha -> IO ()
-sendStreamKafka name conf met stream =
+sendStreamKafka :: Store alpha => String -> KafkaConfig -> Metrics -> Maybe (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
+sendStreamKafka name conf met kset stream =
     E.bracket mkProducer clProducer runHandler >>= print
         where
           mkProducer              = PG.inc (_egressConn met)
@@ -39,7 +40,7 @@ sendStreamKafka name conf met stream =
                                     >> print "close producer"
           runHandler (Left err)   = return $ Left err
           runHandler (Right prod) = print "runhandler producer"
-                                    >> sendMessagesKafka prod (TopicName . T.pack $ conf ^. kafkaTopic) stream met
+                                    >> sendMessagesKafka prod (TopicName . T.pack $ conf ^. kafkaTopic) met kset stream
 
 
 kafkaConnectDelayMs :: Int
@@ -52,15 +53,38 @@ producerProps conf =
        <> KP.logLevel KafkaLogDebug
 
 
-sendMessagesKafka :: Store alpha => KafkaProducer -> TopicName -> Stream alpha -> Metrics -> IO (Either KafkaError ())
-sendMessagesKafka prod topic stream met = do
-    mapM_ (\x -> do
-            let val = encode x
+sendMessagesKafka :: Store alpha => KafkaProducer -> TopicName -> Metrics -> Maybe (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO (Either KafkaError ())
+sendMessagesKafka prod topic met Nothing stream = do
+    mapM_ (\event -> do
+            let val = encode event
             produceMessage prod (mkMessage topic Nothing (Just val))
                 >> PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
           ) stream
     return $ Right ()
+-- memory leak (kr never reduces in size)
+-- sendMessagesKafka prod topic met (Just (kc, kr)) stream = do
+--     mapM_ (\event -> do
+--             let val = encode . tailManage $ event
+--                 -- get all KafkaRecord structures <= current eventId
+--                 rtc = map snd $ takeWhile (\x -> eventId event >= fst x) kr
+--             produceMessage prod (mkMessage topic Nothing (Just val))
+--                 >> PC.inc (_egressEvents met)
+--                 >> PC.add (B.length val) (_egressBytes met)
+--             mapM_ (storeOffsetMessage kc) rtc
+--             ) stream
+--     return $ Right ()
+sendMessagesKafka prod topic met (Just (kc, kr)) (event:xs) = do
+    let val = encode . tailManage $ event
+        (artc, rest) = span (\x -> eventId event >= fst x) kr
+        rtc = map snd artc
+    produceMessage prod (mkMessage topic Nothing (Just val))
+        >> PC.inc (_egressEvents met)
+        >> PC.add (B.length val) (_egressBytes met)
+    mapM_ (storeOffsetMessage kc) rtc
+    sendMessagesKafka prod topic met (Just (kc, rest)) xs
+    return $ Right ()
+
 
 
 mkMessage :: TopicName -> Maybe B.ByteString -> Maybe B.ByteString -> ProducerRecord
@@ -188,12 +212,13 @@ consumerProps :: KafkaConfig -> ConsumerProperties
 consumerProps conf =
     KC.brokersList [BrokerAddress $ brokerAddress conf]
         <> groupId (ConsumerGroupId . T.pack $ conf ^. kafkaConGroup)
-        -- <> KC.logLevel KafkaLogDebug
+        <> KC.logLevel KafkaLogInfo
         -- <> KC.debugOptions [DebugAll]
         -- test no auto commit
         -- THIS HAS TO BE BEFORE CALLBACKPOLLMODE FOR SOME REASON
         -- <> KC.noAutoCommit
         <> KC.noAutoOffsetStore
+        -- <> extraProp "session.timeout.ms" "120000"
         -- <> (KC.setCallback $ rebalanceCallback rbCallBack)
         -- <> (KC.setCallback $ offsetCommitCallback ocCallBack)
         -- WE CAN NOT ADD OPTIONS AFTER THIS LAST ONE
