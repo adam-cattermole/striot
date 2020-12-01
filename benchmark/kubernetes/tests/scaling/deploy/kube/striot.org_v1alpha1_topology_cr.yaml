@@ -1,0 +1,31 @@
+apiVersion: striot.org/v1alpha1
+kind: Topology
+metadata:
+  name: scaling-topology
+spec:
+  partitions:
+    - id: 0
+      image: adamcattermole/striot-node1:latest
+      connectType:
+        ingress: "TCP"
+        egress:  "TCP"
+      edge: true
+    - id: 1
+      image: adamcattermole/striot-node2:latest
+      connectType:
+        ingress: "TCP"
+        egress:  "KAFKA"
+      edge: false
+    - id: 2
+      image: adamcattermole/striot-node3:latest
+      connectType:
+        ingress: "KAFKA"
+        egress:  "TCP"
+      edge: false
+    - id: 3
+      image: adamcattermole/striot-node4:latest
+      connectType:
+        ingress: "TCP"
+        egress:  "TCP"
+      edge: false
+  order: [0,1,2,3]
