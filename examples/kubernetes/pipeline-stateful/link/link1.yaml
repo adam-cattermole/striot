@@ -7,16 +7,21 @@ metadata:
     all: striot
     striot: monitor
 spec:
-  # replicas: 1
-  # selector:
-  #   matchLabels:
-  #     app: striot-link1
   template:
     metadata:
       labels:
         app: striot-link1
     spec:
       restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: node-restriction.kubernetes.io/edge
+                  operator: NotIn
+                  values:
+                  - "true"
       containers:
         - name: striot-link1
           image: adamcattermole/striot-link:latest

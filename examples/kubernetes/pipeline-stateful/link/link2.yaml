@@ -27,7 +27,7 @@ spec:
                   - "true"
       containers:
         - name: striot-link2
-          image: adamcattermole/striot-link:8.8.1-arm
+          image: adamcattermole/striot-link:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 9001

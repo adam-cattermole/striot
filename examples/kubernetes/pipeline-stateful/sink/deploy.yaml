@@ -16,6 +16,15 @@ spec:
       labels:
         app: striot-sink
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: node-restriction.kubernetes.io/edge
+                  operator: NotIn
+                  values:
+                  - "true"
       containers:
         - name: striot-sink
           image: adamcattermole/striot-sink:latest

@@ -13,13 +13,13 @@ services:
       ports:
         - "2181"
   node3:
-    build: node3
+    build: sink
     ports:
       - "9001"
     stdin_open: true
     tty: true
   node2:
-    build: node2
+    build: link
     ports:
       - "9001"
     stdin_open: true
@@ -42,7 +42,7 @@ services:
       - node3
       - redis
   node1:
-    build: node1
+    build: src
     stdin_open: true
     tty: true
     environment:
@@ -60,7 +60,7 @@ services:
       - kafka
       - node2
   manage-sender:
-    build: manage-sender
+    build: manage
     stdin_open: true
     tty: true
     environment:
@@ -83,7 +83,7 @@ services:
     ports:
       - "6379"
   node2_new:
-    build: node2
+    build: link
     ports:
       - "9001"
     stdin_open: true
