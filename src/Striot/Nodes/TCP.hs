@@ -9,16 +9,14 @@ module Striot.Nodes.TCP
 import           Control.Concurrent                       (forkFinally)
 import           Control.Concurrent.Async                 (async)
 import           Control.Concurrent.Chan.Unagi.Bounded    as U
-import qualified Control.Exception                        as E (bracket, catch,
-                                                                evaluate)
+import qualified Control.Exception                        as E (bracket)
 import           Kafka.Consumer                                as KC
 import           Striot.Nodes.Kafka.Types                 (KafkaRecord, blankRecord)
 import           Control.Lens
 import           Control.Monad                            (forever)
 import qualified Data.ByteString                          as B (ByteString,
                                                                 length, null)
-import           Data.Store                               (Store, decode,
-                                                           encode)
+import           Data.Store                               (Store)
 import qualified Data.Store.Streaming                     as SS
 import           Network.Socket
 import           Network.Socket.ByteString
@@ -101,7 +99,7 @@ processData' met conn eventChan =
         case event of
             Just m  -> do
                         PC.inc (_ingressEvents met)
-                        U.writeChan eventChan $ (blankRecord, SS.fromMessage m)
+                        U.writeChan eventChan (blankRecord, SS.fromMessage m)
             Nothing -> print "decode failed"
 
 {- This is a rewrite of Data.Store.Streaming decodeMessageBS, passing in
@@ -145,6 +143,7 @@ writeSocket conn met Nothing stream =
             in  PC.inc (_egressEvents met)
                 >> PC.add (B.length val) (_egressBytes met)
                 >> sendAll conn val) stream
+-- memory leak (kr never reduces in size)
 -- writeSocket conn met (Just (kc, kr)) stream =
 --     mapM_ (\event -> do
 --         let val = SS.encodeMessage . SS.Message . tailManage $ event

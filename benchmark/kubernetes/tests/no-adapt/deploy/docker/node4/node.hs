@@ -7,13 +7,15 @@ import Control.Concurrent
 import System.IO
 import Taxi
 import Data.Time
+import Control.Exception (bracket)
+import Control.Monad (forever)
 
 
 sink1 :: Show a => Stream a -> IO ()
 sink1 s = do
     now <- getCurrentTime
     let fileName = "data/no-adapt_" ++ (formatTime defaultTimeLocale "%d-%m-%Y_%H%M%S" now) ++ ".txt"
-    hdl <- openFile  fileName WriteMode
+    hdl <- openFile fileName WriteMode
     hSetBuffering hdl NoBuffering
     mapM_ (hPutStrLn hdl . show) s
 
@@ -21,13 +23,28 @@ sink1 s = do
 sinkLatencyFile :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
 sinkLatencyFile stream = do
     now <- getCurrentTime
-    let fileName = "data/no-adapt_" ++ (formatTime defaultTimeLocale "%d-%m-%Y_%H%M%S" now) ++ ".txt"
-    hdl <- openFile fileName WriteMode
-    hSetBuffering hdl NoBuffering
-    mapM_ (\event -> do
-        diff <- getLatency event
-        hPutStrLn hdl . show $ diff
-        ) stream
+    let fileName = "output/no-adapt_" ++ (formatTime defaultTimeLocale "%d-%m-%Y_%H%M%S" now) ++ ".txt"
+    sinkLatencyFile' fileName stream
+    -- hdl <- openFile fileName WriteMode
+    -- hSetBuffering hdl NoBuffering
+    -- mapM_ (\event -> do
+    --     diff <- getLatency event
+    --     hPutStrLn hdl . show $ diff
+    --     ) stream
+
+sinkLatencyFile' :: String -> Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
+sinkLatencyFile' fileName stream = forever $ do
+    bracket
+        (do
+            hdl <- openFile fileName WriteMode
+            hSetBuffering hdl NoBuffering
+            return hdl)
+        (hClose)
+        (\hdl -> do
+            mapM_ (\event -> do
+                diff <- getLatency event
+                hPutStrLn hdl . show $ diff
+                ) stream)
 
 sinkLatency :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
 sinkLatency =

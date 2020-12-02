@@ -433,6 +433,6 @@ simulateData fileName = do
                     delay     = (1000000 * (floor . toRational $ diff))
                     v         = fromJust . value $ x
                 now <- getCurrentTime
-                -- rest <- threadDelay (floor ((fromIntegral delay)/10)) >> go (Just x) xs
-                rest <- go (Just x) xs
+                rest <- threadDelay (floor ((fromIntegral delay)/100)) >> go (Just x) xs
+                -- rest <- go (Just x) xs
                 return (x { value = Just (now, v) } : rest)

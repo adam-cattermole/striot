@@ -17,7 +17,7 @@ STRIMZI_OPERATOR="conf/strimzi_operator.yaml"
 STRIMZI_KAFKA="conf/strimzi_kafka.yaml"
 
 #Prometheus
-PROMETHEUS_OPERATOR="conf/prometheus-operator/bundle.yaml"
+PROMETHEUS_OPERATOR="conf/bundle.yaml"
 PROMETHEUS_INSTANCE="conf/prometheus.yaml"
 
 
@@ -86,6 +86,11 @@ extract() {
   log "Extracting throughput data..."
   curl "http://localhost:9090/api/v1/query_range?query=striot_egress_events_total&start=$cal$2.000Z&end=$cal$now.000Z&step=1s" | jq '.' > $1/data/tp/egress_$cal$now.json
   curl "http://localhost:9090/api/v1/query_range?query=striot_ingress_events_total&start=$cal$2.000Z&end=$cal$now.000Z&step=1s" | jq '.' > $1/data/tp/ingress_$cal$now.json
+  
+  log "Extracting latency data..."
+  kubectl cp -n kafka `kubectl get pods --selector=app=striot-node-3 -n kafka -o jsonpath='{.items[*].metadata.name}'`:/opt/node/output/ $1/data/latency/temp
+  mv $1/data/latency/temp/*.txt $1/data/latency/
+  rmdir $1/data/latency/temp
   log "Done."
 }
 
