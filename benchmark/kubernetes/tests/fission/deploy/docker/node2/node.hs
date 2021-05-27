@@ -25,11 +25,17 @@ streamGraphFnM :: (MonadState s m,
                    HasStriotState s (Stream (UTCTime, Journey)),
                    MonadIO m,
                    MonadBaseControl IO m)
-               => Stream (UTCTime, Journey) -> m (Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]))
-streamGraphFnM s = streamFilter (\(t,j) -> inRangeQ1 (start j) && inRangeQ1 (end j))
-                <$> streamMap (\(t,v) -> (t, tripToJourney v)) s
-                <$> streamMap (windowTopk)
-                <$> streamWindowM (slidingTimeM 180000) s
+               => Stream (UTCTime, Trip) -> m (Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]))
+streamGraphFnM s = streamMap (windowTopk)
+                <$> (streamWindowM (slidingTimeM 180000)
+                 $ streamFilter (\(t,j) -> inRangeQ1 (start j) && inRangeQ1 (end j))
+                 $ streamMap (\(t,v) -> (t, tripToJourney v)) s)
+
+windowTopk :: [(UTCTime, Journey)] -> (UTCTime, (UTCTime, UTCTime), [(Journey, Int)])
+windowTopk win =
+    let (t, j)   = unzip win
+        (lt, lj) = last win
+    in  (lt, (pickupTime lj, dropoffTime lj), topk 10 j)
 
 
 main :: IO ()

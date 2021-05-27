@@ -38,6 +38,7 @@ import           Control.Monad.State
 import           Control.Monad.Trans.Control
 import           Data.Time                   (NominalDiffTime, UTCTime,
                                               addUTCTime, diffUTCTime)
+import           Data.Maybe                  (isNothing)
 import           Striot.FunctionalIoTtypes
 import           Striot.Nodes.Types
 import           System.IO.Unsafe            (unsafeInterleaveIO)
@@ -49,18 +50,24 @@ import           Test.Framework
 type EventFilter alpha = alpha -> Bool                                 -- the type of the user-supplied function
 
 streamFilter :: EventFilter alpha -> Stream alpha -> Stream alpha      -- if the value in the event meets the criteria then it can pass through
-streamFilter ff s = filter (\(Event i m t v) -> case v of
-                                                  Just val -> ff val
-                                                  Nothing  -> True)      -- allow timestamped events to pass through for time-based windowing
-                           s
+-- streamfilter ff (e@(Event _ (Just m) _ _):xs) = [e]
+streamFilter ff s =
+    let (f,r) = span (\(Event i m t v) -> isNothing m) s
+        stream = f++[head r]
+    in  filter (\(Event i m t v) -> maybe True ff v)      -- allow timestamped events to pass through for time-based windowing
+                        stream
 
 type EventMap alpha beta = alpha -> beta
 -- Map a Stream ...
 streamMap :: EventMap alpha beta -> Stream alpha -> Stream beta
-streamMap fm s = map (\(Event i m t v) -> case v of
+-- streamMap fm (e@(Event i (Just m) t _):xs) = [Event i (Just m) t Nothing]
+streamMap fm s =
+    let (f,r) = span (\(Event i m t v) -> isNothing m) s
+        stream = f++[head r]
+    in  map (\(Event i m t v) -> case v of
                                             Just val -> Event i m t (Just (fm val))
                                             Nothing  -> Event i m t Nothing       ) -- allow timestamped events to pass through for time-based windowing
-                     s
+                    stream
 
 -- create and aggregate windows
 type WindowMaker alpha = Stream alpha -> [Stream alpha]
@@ -85,7 +92,7 @@ streamWindowM :: (MonadState s m,
                  MonadIO m,
                  MonadBaseControl IO m)
               => WindowMakerM m alpha -> Stream alpha -> m (Stream [alpha])
-streamWindowM fwm s = mapWindowId <$> (fwm s)
+streamWindowM fwm s = mapWindowId <$> fwm s
             where getVals :: Stream alpha -> [alpha]
                   getVals s' = map (\(Event _ _ _ (Just val))->val) $ filter dataEvent s'
                   -- set timestamp to id of last event in the window
@@ -93,9 +100,10 @@ streamWindowM fwm s = mapWindowId <$> (fwm s)
                   mapWindowId [] = []
                   mapWindowId (x:xs) =
                       case x of
-                        [] -> Event 0 Nothing   Nothing (Just [])          : mapWindowId xs
-                        _  -> let l = last x
-                              in  Event (eventId l) (manage l) (time l) (Just (getVals x)) : mapWindowId xs
+                        []                           -> Event 0 Nothing   Nothing (Just [])          : mapWindowId xs
+                        e@(Event i (Just m) t Nothing) : _ -> Event i (Just m) t Nothing : mapWindowId xs
+                        _                            -> let l = last x
+                                                        in  Event (eventId l) (manage l) (time l) (Just (getVals x)) : mapWindowId xs
 
 -- chopM :: (MonadState s m,
 --           HasStriotState s [alpha],
@@ -118,7 +126,7 @@ chopM :: (MonadState s m,
       => Int -> WindowMakerM m alpha
 chopM wLength s = do
     state <- get
-    case (state ^. accValue) of
+    case state ^. accValue of
         Nothing -> chopM' wLength [] s
         Just v  -> let pw = map (\x -> x { eventId = 0 }) v
                    in  chopM' wLength pw s
@@ -130,11 +138,11 @@ chopM' :: (MonadState s m,
       => Int -> Stream alpha -> WindowMakerM m alpha
 chopM' wLength pw s = do
     (w, xs, check) <- takeM wLength pw s
-    case check of
-        False -> unsafeInterleaveLiftedIO
-               $ (w :)
-              <$> chopM' wLength [] xs
-        True  -> return [w]
+    if check then
+        return [w]
+    else unsafeInterleaveLiftedIO
+           $ (w :)
+          <$> chopM' wLength [] xs
 
 
 slidingM :: (MonadState s m,
@@ -144,7 +152,7 @@ slidingM :: (MonadState s m,
          => Int -> WindowMakerM m alpha
 slidingM wLength s = do
     state <- get
-    case (state ^. accValue) of
+    case state ^. accValue of
         Nothing -> slidingM' wLength [] s
         Just v  -> let pw = map (\x -> x { eventId = 0 }) v
                    in  slidingM' wLength pw s
@@ -157,19 +165,19 @@ slidingM' :: (MonadState s m,
          => Int -> Stream alpha -> WindowMakerM m alpha
 slidingM' wLength [] s@(_:xs) = do
     (w, _, check) <- takeM wLength [] s
-    case check of
-        False -> unsafeInterleaveLiftedIO
-               $ (w :)
-              <$> slidingM' wLength [] xs
-        True  -> return [w]
+    if check then
+        return [w]
+    else unsafeInterleaveLiftedIO
+           $ (w :)
+          <$> slidingM' wLength [] xs
 slidingM' wLength pw s = do
     (w, _, check) <- takeM wLength pw s
-    case check of
-        False -> unsafeInterleaveLiftedIO
-               $ (w :)
-              <$> slidingM' wLength (reverse . tail . reverse $ pw) s
-        True  -> return [w]
-
+    if check then
+        return [w]
+    else unsafeInterleaveLiftedIO
+           $ (w :)
+          <$> slidingM' wLength (init pw) s
+-- init = reverse . tail . reverse
 
 chopTimeM :: (MonadState s m,
               HasStriotState s (Stream alpha),
@@ -178,7 +186,7 @@ chopTimeM :: (MonadState s m,
            => Int -> WindowMakerM m alpha
 chopTimeM tLength s = do
     state <- get
-    case (state ^. accValue) of
+    case state ^. accValue of
         Nothing -> chopTimeM' tLength [] s
         Just v  -> let pw = map (\x -> x { eventId = 0 }) v
                    in  chopTimeM' tLength pw s
@@ -191,11 +199,11 @@ chopTimeM' :: (MonadState s m,
            => Int -> Stream alpha -> WindowMakerM m alpha
 chopTimeM' tLength pw s = do
     (w, xs, check) <- takeTimeM tLength pw s
-    case check of
-        False -> unsafeInterleaveLiftedIO
-               $ (w :)
-              <$> chopTimeM' tLength [] xs
-        True  -> return [w]
+    if check then
+        return [w]
+    else unsafeInterleaveLiftedIO
+           $ (w :)
+          <$> chopTimeM' tLength [] xs
 
 
 slidingTimeM :: (MonadState s m,
@@ -205,7 +213,7 @@ slidingTimeM :: (MonadState s m,
              => Int -> WindowMakerM m alpha
 slidingTimeM tLength s = do
     state <- get
-    case (state ^. accValue) of
+    case state ^. accValue of
         Nothing -> slidingTimeM' tLength [] s
         Just v  -> let pw = map (\x -> x { eventId = 0 }) v
                    in  slidingTimeM' tLength pw s
@@ -218,18 +226,19 @@ slidingTimeM' :: (MonadState s m,
               => Int -> Stream alpha -> WindowMakerM m alpha
 slidingTimeM' tLength [] s@(_:xs) = do
     (w, _, check) <- takeTimeM tLength [] s
-    case check of
-        False -> unsafeInterleaveLiftedIO
-               $ (w :)
-              <$> slidingTimeM' tLength [] xs
-        True  -> return [w]
+    if check then
+        return [w]
+    else unsafeInterleaveLiftedIO
+           $ (w :)
+          <$> slidingTimeM' tLength [] xs
 slidingTimeM' tLength pw s = do
     (w, _, check) <- takeTimeM tLength pw s
-    case check of
-        False -> unsafeInterleaveLiftedIO
-               $ (w :)
-              <$> slidingTimeM' tLength (reverse . tail . reverse $ pw) s
-        True  -> return [w]
+    if check then
+        return [w]
+    else unsafeInterleaveLiftedIO
+           $ (w :)
+          <$> slidingTimeM' tLength (init pw) s
+-- init = reverse . tail . reverse
 
 
 takeM :: (MonadState s m,
@@ -293,13 +302,13 @@ sliding :: Int -> WindowMaker alpha
 sliding wLength s = sliding' wLength $ filter dataEvent s
            where sliding':: Int -> WindowMaker alpha
                  sliding' wLength []      = []
-                 sliding' wLength s@(h:t) = (take wLength s) : sliding' wLength t
+                 sliding' wLength s@(h:t) = take wLength s : sliding' wLength t
 
 slidingTime:: Int -> WindowMaker alpha -- the first argument is the window length in milliseconds
 slidingTime tLength s = slidingTime' (milliToTimeDiff tLength) $ filter timedEvent s
                         where slidingTime':: NominalDiffTime -> Stream alpha -> [Stream alpha]
                               slidingTime' tLen []                        = []
-                              slidingTime' tLen s@(Event _ _ (Just t) _:xs) = (takeTime (addUTCTime tLen t) s) : slidingTime' tLen xs
+                              slidingTime' tLen s@(Event _ _ (Just t) _:xs) = takeTime (addUTCTime tLen t) s : slidingTime' tLen xs
 
 takeTime:: UTCTime -> Stream alpha -> Stream alpha
 takeTime endTime []                                        = []
@@ -312,7 +321,7 @@ milliToTimeDiff x = toEnum (x * 10 ^ 9)
 chop :: Int -> WindowMaker alpha
 chop wLength s = chop' wLength $ filter dataEvent s
      where chop' wLength [] = []
-           chop' wLength s  = w:(chop' wLength r) where (w,r) = splitAt wLength s
+           chop' wLength s  = w:chop' wLength r where (w,r) = splitAt wLength s
 
 chopTime :: Int -> WindowMaker alpha -- N.B. discards events without a timestamp
 chopTime _       []                         = []
@@ -324,7 +333,7 @@ chopTime tLength s@((Event _ _ (Just t) _):_) = chopTime' (milliToTimeDiff tLeng
                                         in  fstBuffer : chopTime' tLen endTime rest
 
 timeTake :: UTCTime -> Stream alpha -> (Stream alpha, Stream alpha)
-timeTake endTime s = span (\(Event _ _ (Just t) _) -> t < endTime) s
+timeTake endTime = span (\(Event _ _ (Just t) _) -> t < endTime)
 
 complete :: WindowMaker alpha
 complete s = [s]
@@ -332,7 +341,7 @@ complete s = [s]
 -- Merge a set of streams that are of the same type. Preserve time ordering
 streamMerge:: [Stream alpha]-> Stream alpha
 streamMerge []     = []
-streamMerge (x:[]) = x
+streamMerge [x] = x
 streamMerge (x:xs) = merge' x (streamMerge xs)
     where merge':: Stream alpha -> Stream alpha -> Stream alpha
           merge' xs                               []                                           = xs
@@ -347,7 +356,7 @@ streamJoin :: Stream alpha -> Stream beta -> Stream (alpha,beta)
 streamJoin []                               []                               = []
 streamJoin _                                []                               = []
 streamJoin []                               _                                = []
-streamJoin    ((Event i1  m1  t1 (Just v1)):r1)    ((Event _ _ _ (Just v2)):r2) = (Event i1 m1 t1 (Just(v1,v2))):(streamJoin r1 r2)
+streamJoin    ((Event i1  m1  t1 (Just v1)):r1)    ((Event _ _ _ (Just v2)):r2) = Event i1 m1 t1 (Just(v1,v2)):streamJoin r1 r2
 streamJoin    ((Event _   _   _  Nothing  ):r1) s2@((Event _ _ _ (Just v2)):_ ) = streamJoin r1 s2
 streamJoin s1@((Event _   _   _  (Just v1)):_ )    ((Event _ _ _ Nothing  ):r2) = streamJoin s1 r2
 streamJoin    ((Event _   _   _  Nothing  ):r1)    ((Event _ _ _ Nothing  ):r2) = streamJoin r1 r2
@@ -365,7 +374,7 @@ streamJoinE :: WindowMaker alpha ->
                Stream gamma
 streamJoinE fwm1 fwm2 fwj fwm s1 s2 = streamExpand $ streamMap (cartesianJoin fwj fwm) $ streamJoin (streamWindow fwm1 s1) (streamWindow fwm2 s2)
     where cartesianJoin :: JoinFilter alpha beta -> JoinMap alpha beta gamma -> ([alpha],[beta]) -> [gamma]
-          cartesianJoin jf jm (w1,w2) = map (\(e1,e2)->jm e1 e2) $ filter (\(e1,e2)->jf e1 e2) $ cartesianProduct w1 w2
+          cartesianJoin jf jm (w1,w2) = map (uncurry jm) $ filter (uncurry jf) $ cartesianProduct w1 w2
 
           cartesianProduct:: [alpha] -> [beta] -> [(alpha,beta)]
           cartesianProduct s1 s2 = [(a,b)|a<-s1,b<-s2]
@@ -373,14 +382,14 @@ streamJoinE fwm1 fwm2 fwj fwm s1 s2 = streamExpand $ streamMap (cartesianJoin fw
 streamJoinW :: WindowMaker alpha ->
                WindowMaker beta  ->
               ([alpha] -> [beta] -> gamma)      -> Stream alpha -> Stream beta  -> Stream gamma
-streamJoinW fwm1 fwm2 fwj s1 s2 = streamMap (\(w1,w2)->fwj w1 w2) $ streamJoin (streamWindow fwm1 s1) (streamWindow fwm2 s2)
+streamJoinW fwm1 fwm2 fwj s1 s2 = streamMap (uncurry fwj) $ streamJoin (streamWindow fwm1 s1) (streamWindow fwm2 s2)
 
 -- Stream Filter with accumulating parameter
 streamFilterAcc:: (beta -> alpha -> beta) -> beta -> (alpha -> beta -> Bool) -> Stream alpha -> Stream alpha
 streamFilterAcc accfn acc ff []                         = []
-streamFilterAcc accfn acc ff (e@(Event _ _ _ (Just v)):r) | ff v acc  = e:(streamFilterAcc accfn (accfn acc v) ff r)
+streamFilterAcc accfn acc ff (e@(Event _ _ _ (Just v)):r) | ff v acc  = e:streamFilterAcc accfn (accfn acc v) ff r
                                                         | otherwise =    streamFilterAcc accfn (accfn acc v) ff r
-streamFilterAcc accfn acc ff (e@(Event _ _ _ Nothing ):r)             = e:(streamFilterAcc accfn acc           ff r) -- allow events without data to pass through
+streamFilterAcc accfn acc ff (e@(Event _ _ _ Nothing ):r)             = e:streamFilterAcc accfn acc           ff r -- allow events without data to pass through
 
 -- Stream map with accumulating parameter
 streamScan:: (beta -> alpha -> beta) -> beta -> Stream alpha -> Stream beta
@@ -389,18 +398,16 @@ streamScan mf acc (Event i m t (Just v):r) = Event i m t (Just newacc):streamSca
 streamScan mf acc (Event i m t Nothing :r) = Event i m t Nothing      :streamScan mf acc    r -- allow events without data to pass through
 
 instance Arbitrary a => Arbitrary (Event a) where
-    arbitrary = do
-        i <- arbitrary
-        return $ Event 0 Nothing Nothing (Just i)
+    arbitrary = Event 0 Nothing Nothing . Just <$> arbitrary
 
 prop_streamScan_samelength :: Stream Int -> Bool
 prop_streamScan_samelength s = length s == length (streamScan (\_ x-> x) 0 s)
 
 -- Map a Stream to a set of events
 streamExpand :: Stream [alpha] -> Stream alpha
-streamExpand s = concatMap eventExpand s
+streamExpand = concatMap eventExpand
       where eventExpand :: Event [alpha] -> [Event alpha]
-            eventExpand (Event i m t (Just v)) = map (\nv->Event i m t (Just nv)) v
+            eventExpand (Event i m t (Just v)) = map (Event i m t . Just) v
             eventExpand (Event i m t Nothing ) = [Event i m t Nothing]
 
 
@@ -416,7 +423,7 @@ streamScanM :: (MonadState s m,
             -> m (Stream beta)
 streamScanM mf acc s = do
     state <- get
-    case (state ^. accValue) of
+    case state ^. accValue of
         Nothing -> streamScanM' mf acc s
         Just v  -> streamScanM' mf v   s
 
@@ -455,7 +462,7 @@ streamFilterAccM :: (MonadState s m,
                  -> m (Stream alpha)
 streamFilterAccM accfn acc ff s = do
     state <- get
-    case (state ^. accValue) of
+    case state ^. accValue of
         Nothing -> streamFilterAccM' accfn acc ff s
         Just v  -> streamFilterAccM' accfn v   ff s
 
@@ -501,7 +508,7 @@ unsafeInterleaveLiftedIO = liftBaseOp_ unsafeInterleaveIO
 --t1 tLen sLen s = splitAtValuedEvents tLen (take sLen s)
 
 s1 :: Stream Int
-s1 = [(Event 0 Nothing (Just (addUTCTime i (read "2013-01-01 00:00:00"))) (Just 999))|i<-[0..]]
+s1 = [Event 0 Nothing (Just (addUTCTime i (read "2013-01-01 00:00:00"))) (Just 999)|i<-[0..]]
 
 s2 :: Stream Int
 s2 = [Event 0 Nothing (Just (addUTCTime i (read "2013-01-01 00:00:00"))) Nothing |i<-[0..]]
@@ -526,13 +533,13 @@ ex3 i = streamWindow (sliding i) s4
 
 ex4 i = streamWindow (chop i) s4
 
-ex5 = streamFilter (\v->v>1000) s1
+ex5 = streamFilter (> 1000) s1
 
-ex6 = streamFilter (\v->v<1000) s1
+ex6 = streamFilter (< 1000) s1
 
 sample :: Int -> Stream alpha -> Stream alpha
-sample n s = streamFilterAcc (\acc h -> if acc==0 then n else acc-1) n (\h acc -> acc==0) s
+sample n = streamFilterAcc (\acc h -> if acc==0 then n else acc-1) n (\h acc -> acc==0)
 
 ex7 = streamJoin s1 s4
-ex8 = streamJoinW (chop 2) (chop 2) (\a b->(sum a)+(sum b)) s4 s6
-ex9 = streamJoinE (chop 2) (chop 2) (\a b->a<b) (\a b->a+b) s4 s6
+ex8 = streamJoinW (chop 2) (chop 2) (\a b->sum a+sum b) s4 s6
+ex9 = streamJoinE (chop 2) (chop 2) (<) (+) s4 s6

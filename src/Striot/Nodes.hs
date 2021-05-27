@@ -21,6 +21,7 @@ import           Control.Concurrent.Async                      (async)
 import           Control.Concurrent                            (threadDelay)
 import           Control.Concurrent.Chan.Unagi.Bounded         as U
 import           Control.Lens
+import           Control.Monad                                (when, void)
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Control.Monad.State
@@ -75,6 +76,8 @@ nodeSource' :: (Store alpha, Store beta,
             -> (Stream alpha -> Stream beta) -> m ()
 nodeSource' iofn streamOp = do
     c <- ask
+    liftIO $ hSetBuffering stdout LineBuffering
+    liftIO $ print $ "Starting " ++ (c ^. nodeName) ++ "..."
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
     stream <- liftIO $ readListFromSource iofn metrics
     let result = streamOp stream
@@ -98,8 +101,10 @@ nodeSourceC' :: (Store alpha, Store beta,
             -> (Stream alpha -> Stream beta) -> m ()
 nodeSourceC' iostream streamOp = do
     c <- ask
+    liftIO $ hSetBuffering stdout LineBuffering
+    liftIO $ print $ "Starting " ++ (c ^. nodeName) ++ "..."
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
-    stream <- liftIO $ iostream
+    stream <- liftIO iostream
     let result = streamOp stream
     sendStream metrics Nothing result
 
@@ -120,10 +125,14 @@ nodeLink' :: (Store alpha, Store beta,
           -> m ()
 nodeLink' streamOp = do
     c <- ask
+    liftIO $ hSetBuffering stdout LineBuffering
+    liftIO $ print $ "Starting " ++ (c ^. nodeName) ++ "..."
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
     (stream, kset) <- processInput metrics
     let result = streamOp stream
-    sendStream metrics kset result
+    -- sendStream metrics kset result
+    sendStream metrics Nothing result
+    -- override for scalng...
 
 
 nodeLinkStateful :: (Store alpha, Store beta, Show gamma, Store gamma)
@@ -145,9 +154,10 @@ nodeLinkStateful' :: (Store alpha, Store beta, Show gamma, Show s, Store gamma,
                  -> m ()
 nodeLinkStateful' streamOp = do
     c <- ask
-    case (c ^. stateInit) of
-        True      -> retrieveState (c ^. stateKey)
-        _         -> return ()
+    liftIO $ hSetBuffering stdout LineBuffering
+    liftIO $ print $ "Starting " ++ (c ^. nodeName) ++ "..."
+    when (c ^. stateInit) $
+        retrieveState (c ^. stateKey)
     acc <- get
     liftIO $ print ("init new to : " ++ show acc)
     -- Check that input is KAFKA
@@ -161,9 +171,9 @@ nodeLinkStateful' streamOp = do
     -- If the stream ever ends we know that the acc must have been set
     acc <- get
     liftIO $ print acc
+    m <- closeConsumer $ fst . fromJust $ kset
     -- Store the state in redis
     storeState
-    m <- closeConsumer $ fst . fromJust $ kset
     liftIO $ print m
     -- liftIO $ threadDelay (1000*1000*120)
     -- liftIO $ exitImmediately ExitSuccess
@@ -220,6 +230,8 @@ nodeSink' :: (Store alpha, Store beta,
           -> m ()
 nodeSink' streamOp iofn = do
     c <- ask
+    liftIO $ hSetBuffering stdout LineBuffering
+    liftIO $ print $ "Starting " ++ (c ^. nodeName) ++ "..."
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
     -- should manually commit offsets once processed by iofn
     (stream, _) <- processInput metrics
@@ -336,7 +348,7 @@ processInput :: (Store alpha,
                 MonadIO m)
              => Metrics
              -> m (Stream alpha, Maybe (KafkaConsumer, [(Int, KafkaRecord)]))
-processInput metrics = connectDispatch metrics
+processInput = connectDispatch
 
 
 connectDispatch :: (Store alpha,
@@ -473,8 +485,7 @@ storeState :: (Store alpha,
 storeState = do
     s <- get
     connInfo <- getConnectInfo
-    liftIO $ runRedis connInfo $ R.set (encode $ s ^. accKey) (encode $ s ^. accValue)
-           >> return ()
+    liftIO $ runRedis connInfo $ void (R.set (encode $ s ^. accKey) (encode $ s ^. accValue))
 
 
 retrieveState :: (Store alpha,
@@ -488,20 +499,20 @@ retrieveState :: (Store alpha,
 retrieveState k = do
     connInfo <- getConnectInfo
     s <- liftIO $ do
-            runRedis connInfo $ (decodeEx . fromJust . fromRight Nothing <$> R.get (encode k))
+            runRedis connInfo (decodeEx . fromJust . fromRight Nothing <$> R.get (encode k))
     accKey .= k >> accValue .= s
 
 
 getConnectInfo :: (MonadReader r m,
                   HasStriotConfig r)
-               => m (R.ConnectInfo)
+               => m R.ConnectInfo
 getConnectInfo = do
     c <- ask
-    return $ R.defaultConnectInfo { R.connectHost = (c ^. stateStore . host)
-                                  , R.connectPort = (R.PortNumber $ read $ c ^. stateStore . port) }
+    return $ R.defaultConnectInfo { R.connectHost = c ^. stateStore . host
+                                  , R.connectPort = R.PortNumber $ read $ c ^. stateStore . port }
 
 
 runRedis :: R.ConnectInfo -> R.Redis a -> IO a
 runRedis connInfo r = E.bracket (R.checkedConnect connInfo)
-                                (R.disconnect)
-                                (\conn -> R.runRedis conn $ r)
+                                R.disconnect
+                                (`R.runRedis` r)

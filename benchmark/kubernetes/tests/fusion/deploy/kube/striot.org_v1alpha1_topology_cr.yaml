@@ -15,7 +15,7 @@ spec:
       connectType:
         ingress: "KAFKA"
         egress:  "KAFKA"
-      edge: false
+      edge: true
     - id: 2
       image: adamcattermole/striot-node3:latest
       connectType:

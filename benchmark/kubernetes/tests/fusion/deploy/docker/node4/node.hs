@@ -6,24 +6,45 @@ import Striot.Nodes
 import Control.Concurrent
 import System.IO
 import Taxi
-import Data.Time                   (getCurrentTime, diffUTCTime, UTCTime (..), NominalDiffTime (..))
+import Data.Time
+import Control.Exception (bracket)
+import Control.Monad (forever)
 
 
 sink1 :: Show a => Stream a -> IO ()
 sink1 s = do
-    hdl <- openFile  "output.txt" WriteMode
+    now <- getCurrentTime
+    let fileName = "data/fusion_" ++ (formatTime defaultTimeLocale "%d-%m-%Y_%H%M%S" now) ++ ".txt"
+    hdl <- openFile fileName WriteMode
     hSetBuffering hdl NoBuffering
     mapM_ (hPutStrLn hdl . show) s
 
 
 sinkLatencyFile :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
 sinkLatencyFile stream = do
-    hdl <- openFile  "output.txt" WriteMode
-    hSetBuffering hdl NoBuffering
-    mapM_ (\event -> do
-        diff <- getLatency event
-        hPutStrLn hdl . show $ diff
-        ) stream
+    now <- getCurrentTime
+    let fileName = "output/fusion_" ++ (formatTime defaultTimeLocale "%d-%m-%Y_%H%M%S" now) ++ ".txt"
+    sinkLatencyFile' fileName stream
+    -- hdl <- openFile fileName WriteMode
+    -- hSetBuffering hdl NoBuffering
+    -- mapM_ (\event -> do
+    --     diff <- getLatency event
+    --     hPutStrLn hdl . show $ diff
+    --     ) stream
+
+sinkLatencyFile' :: String -> Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
+sinkLatencyFile' fileName stream = forever $ do
+    bracket
+        (do
+            hdl <- openFile fileName WriteMode
+            hSetBuffering hdl NoBuffering
+            return hdl)
+        (hClose)
+        (\hdl -> do
+            mapM_ (\event -> do
+                diff <- getLatency event
+                hPutStrLn hdl . show $ diff
+                ) stream)
 
 sinkLatency :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
 sinkLatency =
@@ -31,13 +52,18 @@ sinkLatency =
         diff <- getLatency event
         print diff)
 
-getLatency :: Event (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO NominalDiffTime
+getLatency :: Event (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO (UTCTime, NominalDiffTime)
+getLatency (Event _ _ _ Nothing) = do
+    now <- getCurrentTime
+    return (now, 0)
 getLatency (Event _ _ _ (Just (t,_,_))) = do
-    (diffUTCTime <$> getCurrentTime) <*> pure t
+    now <- getCurrentTime
+    return (now, diffUTCTime now t)
 
 
 sink2 :: Show a => Stream a -> IO ()
 sink2 = mapM_ print
+
 
 
 streamGraphFn :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)])

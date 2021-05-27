@@ -1,84 +1,29 @@
 {-# LANGUAGE FlexibleContexts #-}
--- node4
-import Striot.FunctionalIoTtypes
-import Striot.FunctionalProcessing
-import Striot.Nodes
-import Control.Concurrent
-import System.IO
-import Taxi
-import Data.Time                   (getCurrentTime, diffUTCTime, UTCTime (..), NominalDiffTime (..))
+
+-- node2
+import           Control.Concurrent
+import           Control.Monad.State
+import           Control.Monad.Trans.Control
+import           Striot.FunctionalIoTtypes
+import           Striot.FunctionalProcessing
+import           Striot.Nodes
+import           Striot.Nodes.Types
+import           System.Envy
+import           Taxi
+import           Data.Time                   (UTCTime (..))
 
 
-sink1 :: Show a => Stream a -> IO ()
-sink1 s = do
-    hdl <- openFile  "output.txt" WriteMode
-    hSetBuffering hdl NoBuffering
-    mapM_ (hPutStrLn hdl . show) s
+-- streamGraphFn :: Stream (UTCTime, Trip) -> Stream (UTCTime, Trip)
+-- streamGraphFn = id
 
+streamGraphFn :: Stream (UTCTime, Trip) -> Stream (UTCTime, Journey)
+streamGraphFn s = streamFilter (\(t,j) -> inRangeQ1 (start j) && inRangeQ1 (end j))
+                $ streamMap (\(t,v) -> (t, tripToJourney v)) s
 
-sinkLatencyFile :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
-sinkLatencyFile stream = do
-    hdl <- openFile  "output.txt" WriteMode
-    hSetBuffering hdl NoBuffering
-    mapM_ (\event -> do
-        diff <- getLatency event
-        hPutStrLn hdl . show $ diff
-        ) stream
-
-sinkLatency :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
-sinkLatency =
-    mapM_ (\event -> do
-        diff <- getLatency event
-        print diff)
-
-getLatency :: Event (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO NominalDiffTime
-getLatency (Event _ _ _ (Just (t,_,_))) = do
-    (diffUTCTime <$> getCurrentTime) <*> pure t
-
-
-sink2 :: Show a => Stream a -> IO ()
-sink2 = mapM_ print
-
-
--- streamGraphFn :: Stream Int -> Stream String
--- streamGraphFn n1 = let
---     n2 = (\s -> streamMap (\st->"Incoming Message at Server: " ++ show st) s) n1
---     -- n3 = (\s -> streamWindow (chop 2) s) n2
---     in n2
-
-
--- streamGraphFn' :: Stream [Int] -> Stream String
--- streamGraphFn' n1 = let
---     n2 = (\s -> streamMap (\st->"Incoming Message at Server: " ++ show st) s) n1
---     -- n3 = (\s -> streamWindow (chop 2) s) n2
---     in n2
-
-streamGraphFn :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)])
-streamGraphFn = id
-
--- streamGraphLatency :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> Stream NominalDiffTime
--- streamGraphLatency stream = do
---     streamMap (\(t,_,_) -> do
---         now <- getCurrentTime
---         let diff = diffUTCTime now t
---         return diff
---         ) stream
-
-
-streamGraphFn' :: Stream (UTCTime, Trip) -> Stream (UTCTime, Trip)
-streamGraphFn' = id
-
-
--- journeyChangesM :: (MonadState s m,
---                    HasStriotState s ((UTCTime, UTCTime),[(Journey, Int)]),
---                    MonadIO m,
---                    MonadBaseControl IO m)
---                 => Stream ((UTCTime, UTCTime),[(Journey, Int)]) -> m (Stream ((UTCTime, UTCTime),[(Journey, Int)]))
--- journeyChangesM :: (MonadState s m, HasStriotState s (a, b), MonadIO m, MonadBaseControl IO m, Eq b) => Stream (a, b) -> m (Stream (a, b))
-
-journeyChanges (Event _ _ _ (Just val):r) = streamFilterAccM (\acc h -> if snd h == snd acc then acc else h) val (\h acc -> snd h /= snd acc) r
 
 main :: IO ()
-main = nodeSink (defaultSink "9001") streamGraphFn sinkLatencyFile
-
-
+main = do
+    conf <- decodeEnv :: IO (Either String StriotConfig)
+    case conf of
+        Left _  -> print "Could not read from env"
+        Right c -> nodeLink c streamGraphFn

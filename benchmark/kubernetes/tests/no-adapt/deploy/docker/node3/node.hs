@@ -24,6 +24,8 @@ streamGraphFnM' :: (MonadState s m,
                => Stream (UTCTime, Journey) -> m (Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]))
 streamGraphFnM' s = streamMap (windowTopk)
                  <$> streamWindowM (slidingTimeM 180000) s
+                 --   60000 = 1m
+                 --  180000 = 3m
                  -- 1800000 = 30m
 
 
@@ -39,9 +41,13 @@ windowTopk win =
     in  (lt, (pickupTime lj, dropoffTime lj), topk 10 j)
 
 
+notopkwindowonly :: Stream (UTCTime, Journey) -> Stream [(UTCTime, Journey)]
+notopkwindowonly s = streamWindow (slidingTime 180000) s
+
 main :: IO ()
 main = do
     conf <- decodeEnv :: IO (Either String StriotConfig)
     case conf of
         Left _  -> print "Could not read from env"
         Right c -> nodeLink c streamGraphFn
+        -- Right c -> nodeLink c notopkwindowonly

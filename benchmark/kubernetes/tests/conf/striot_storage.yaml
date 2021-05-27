@@ -20,6 +20,7 @@ spec:
     - ReadWriteMany
   persistentVolumeReclaimPolicy: Retain
   azureFile:
+    secretNamespace: kafka
     secretName: striot-storage-secret
     shareName: striot-share
     readOnly: false

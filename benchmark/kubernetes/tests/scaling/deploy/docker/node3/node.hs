@@ -17,9 +17,9 @@ streamGraphFnid :: Stream (UTCTime, Trip) -> Stream (UTCTime, Trip)
 streamGraphFnid = id
 
 
-streamGraphFn :: Stream (UTCTime, Journey) -> Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)])
+streamGraphFn :: Stream [(UTCTime, Journey)] -> Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)])
 streamGraphFn = streamMap (windowTopk)
-              $ streamWindow (slidingTime 180000)
+            --   $ streamWindow (slidingTime 180000)
 
 
 streamGraphFnM :: (MonadState s m,

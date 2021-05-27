@@ -15,13 +15,13 @@ spec:
       connectType:
         ingress: "TCP"
         egress:  "KAFKA"
-      edge: false
+      edge: true
     - id: 2
       image: adamcattermole/striot-node3:latest
       connectType:
         ingress: "KAFKA"
         egress:  "TCP"
-      edge: false
+      edge: true
     - id: 3
       image: adamcattermole/striot-node4:latest
       connectType:

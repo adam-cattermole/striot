@@ -2,19 +2,25 @@
 
 module Taxi where
 
+import           Data.Either                 (fromRight)
 import           Data.List
 import           Data.List.Split
 import qualified Data.Map                    as Map
 import           Data.Maybe                  (fromJust)
 import           Data.Store
 import           Data.Time                   (NominalDiffTime, UTCTime (..),
-                                              addUTCTime, fromGregorianValid, diffUTCTime, getCurrentTime)
+                                              addUTCTime, fromGregorianValid, diffUTCTime, getCurrentTime, secondsToDiffTime)
+import          Data.Time.Calendar.OrdinalDate
+-- import          Data.Time.Calendar.OrdinalDate (YearDay(..))
 import           GHC.Generics                (Generic)
 import           Striot.FunctionalIoTtypes
 import           Striot.FunctionalProcessing
 import           System.Posix.IO
 import           System.IO.Unsafe            (unsafeInterleaveIO)
 import           Control.Concurrent          (threadDelay)
+import           Control.Exception           (try)
+import           Text.Read                   (readEither)
+import           System.IO
 
 -- A solution to: http://www.debs2015.org/call-grand-challenge.html
 -- The winner was: https://vgulisano.files.wordpress.com/2015/06/debs2015gc_tr.pdf
@@ -123,7 +129,7 @@ inRangeQ2 = inRange 600 600
 --- Parse the input file --------------------------------------------------------------------------------------
 tripSource :: String -> Stream Trip -- parse input file into a Stream of Trips
 tripSource s = map ((\t -> Event 0 Nothing (Just (dropoffDatetime t)) (Just t))
-                   . stringsToTrip . Data.List.Split.splitOn ",") (lines s)
+                   . stt . Data.List.Split.splitOn ",") (lines s)
 
 -- turns a line from the input file (already split into a list of fields) into a Trip datastructure
 stringsToTrip :: [String] -> Trip
@@ -136,6 +142,60 @@ stringsToTrip [med, hack, pickupDateTime, dropoffDateTime, trip_time, trip_dist,
                  (read fare) (read sur) (read mta) (read tip) (read tolls) (read total)
 stringsToTrip s = error ("error in input: " ++ intercalate "," s)
 
+-- stringsToTrip' :: [String] -> Trip
+-- stringsToTrip' [med, hack, pickupDateTime, dropoffDateTime, trip_time, trip_dist, pickup_long, pickup_lat,
+--                dropoff_long, dropoff_lat, pay_type, fare, sur, mta, tip, tolls, total] =
+--     Trip med hack (read pickupDateTime) (read dropoffDateTime) (read trip_time) (read trip_dist)
+--                  (Location (read pickup_lat)  (read pickup_long))
+--                  (Location (read dropoff_lat) (read dropoff_long))
+--                  (if pay_type == "CRD" then Card else Cash)
+--                  (read fare) (read sur) (read mta) (read tip) (read tolls) (read total)
+-- stringsToTrip' s = error ("error in input: " ++ intercalate "," s)
+
+stt :: [String] -> Trip
+stt [med, hack, pickupDateTime, dropoffDateTime, trip_time, trip_dist, pickup_long, pickup_lat,
+    dropoff_long, dropoff_lat, pay_type, fare, sur, mta, tip, tolls, total] =
+    let rmed             = fromRight "" $ readEither med   
+        rhack            = fromRight "" $ readEither hack
+        rpickupDateTime  = fromRight (UTCTime (fromOrdinalDate 1970 1) (secondsToDiffTime 0)) $ readEither pickupDateTime
+        rdropoffDateTime = fromRight (UTCTime (fromOrdinalDate 1970 1) (secondsToDiffTime 0)) $ readEither dropoffDateTime
+        rtrip_time       = fromRight 0 $ readEither trip_time
+        rtrip_dist       = fromRight 0.0 $ readEither trip_dist
+        rpickup_lat      = fromRight 0.0 $ readEither pickup_lat
+        rpickup_long     = fromRight 0.0 $ readEither pickup_long
+        rdropoff_lat     = fromRight 0.0 $ readEither dropoff_lat
+        rdropoff_long    = fromRight 0.0 $ readEither dropoff_long
+        rpay_type        = (if pay_type == "CRD" then Card else Cash)
+        rfare            = fromRight 0.0 $ readEither fare
+        rsur             = fromRight 0.0 $ readEither sur
+        rmta             = fromRight 0.0 $ readEither mta
+        rtip             = fromRight 0.0 $ readEither tip
+        rtolls           = fromRight 0.0 $ readEither tolls
+        rtotal           = fromRight 0.0 $ readEither total
+    in
+        Trip
+            rmed rhack rpickupDateTime rdropoffDateTime rtrip_time rtrip_dist
+            (Location rpickup_lat rpickup_long) (Location rdropoff_lat rdropoff_long)
+            rpay_type rfare rsur rmta rtip rtolls rtotal
+-- :: (Either String Medallion)
+    -- in if (isRight rmed) && (isRight rhack) && (isRight rpickupDateTime) && (isRight rdropoffDateTime)
+    --     && (isRight rtrip_time) && (isRight rtrip_time) && (isRight rpickup_long) && (isRight rpickup_lat)
+    --     && (isRight rdropoff_long) && (isRight rdropoff_lat) && (isRight rpay_type) && (isRight rfare) && (isRight rsur)
+    --     && (isRight rmta) && (isRight rtip) && (isRight rtolls) && (isRight rtotal) then
+
+
+-- defTrip :: Trip
+-- defTrip =
+--     Trip "" "" (utctDayTime . secondsToDiffTime $ 0) (utctDayTime . secondsToDiffTime $ 0) 0 0.0
+--         (Location 0.0 0.0) (Location 0.0 0.0)
+--         Card
+--         0.0 0.0 0.0 0.0 0.0 0.0
+
+-- readIt x =
+--     let out = readEither x
+--     case out of
+--         Left _ -> ""
+--         Right d -> d
 ----------------------------------------------------------------------------------------------------------------
 
 journeyChanges :: Stream ((UTCTime, UTCTime),[(Journey, Int)]) -> Stream ((UTCTime, UTCTime),[(Journey, Int)])
@@ -414,6 +474,11 @@ preSource = do
 --                 rest <- threadDelay delay >> go xs
 --                 return (x : rest)
 
+--- TODO: rewrite this
+--- try $ read line by line
+--- case match of except print error or value enters stream
+--- hope that data keeps flowing fast
+
 simulateData :: String -> IO (Stream (UTCTime, Trip))
 simulateData fileName = do
     contents <- readFile fileName
@@ -421,17 +486,37 @@ simulateData fileName = do
     go Nothing stream
         where
             go :: Maybe (Event Trip) -> Stream Trip -> IO (Stream (UTCTime, Trip))
+            go _       []     = threadDelay (1000*1000*60) >> return []
             go Nothing (x:xs) = unsafeInterleaveIO $ do
                 let v         = fromJust . value $ x
-                now <- getCurrentTime
                 rest <- go (Just x) xs
+                now <- getCurrentTime
                 return ( x { value = Just (now, v) } : rest)
             go (Just p) (x:xs) = unsafeInterleaveIO $ do
                 let getTime e = fromJust . time $ e 
                     diff      = diffUTCTime (getTime x) (getTime p)
                     delay     = (1000000 * (floor . toRational $ diff))
                     v         = fromJust . value $ x
+                rest <- threadDelay (floor ((fromIntegral delay)/110)) >> go (Just x) xs
+                -- rest <- threadDelay (floor ((fromIntegral delay)/125)) >> go (Just x) xs
+                -- rest <- go (Just x) xs
                 now <- getCurrentTime
-                -- rest <- threadDelay (floor ((fromIntegral delay)/10)) >> go (Just x) xs
-                rest <- go (Just x) xs
                 return (x { value = Just (now, v) } : rest)
+
+
+-- readF :: String -> IO String
+-- readF fileName = do
+--     handle <- openFile fileName ReadMode
+--     hSetBuffering handle NoBuffering
+--     hGetContents handle
+
+-- go :: Handle -> IO String
+-- go h = unsafeInterleaveIO $ do
+--     if hIsOpen handle && hIsReadable handle then
+--         do
+--             x <- hGetLine h
+--             xs <- go h
+--     else
+--         go h
+--     return $ xs ++ x
+    

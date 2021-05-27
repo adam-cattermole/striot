@@ -4,8 +4,8 @@ metadata:
   name: my-cluster
 spec:
   kafka:
-    version: 2.5.0
-    replicas: 1
+    version: 2.6.0
+    replicas: 3
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
@@ -15,15 +15,49 @@ spec:
                 operator: NotIn
                 values:
                 - "true"
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - kafka
+            topologyKey: "kubernetes.io/hostname"
     listeners:
-      plain: {}
-      tls: {}
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    jvmOptions:
+      -Xms: 5120m
+      -Xmx: 5120m
+      -XX: 
+        "UseG1GC": true
+        "MaxGCPauseMillis": 20
+        "InitiatingHeapOccupancyPercent": 35
+        "DisableExplicitGC": true
+      javaSystemProperties:
+        - name: java.awt.headless
+          value: "true"
+        - name: java.net.preferIPv4Stack
+          value: "true"
     config:
       auto.create.topics.enable: "false"
-      offsets.topic.replication.factor: 1
-      transaction.state.log.replication.factor: 1
-      transaction.state.log.min.isr: 1
-      log.message.format.version: "2.5"
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      log.message.format.version: "2.6"
+      socket.send.buffer.bytes: 8389000
+      socket.receive.buffer.bytes: 8389000
+      num.network.threads: 6
+      num.io.threads: 8
+      queued.max.requests: 500
+      # compression.type: "lz4"
     storage:
       type: ephemeral
   zookeeper:
@@ -37,6 +71,15 @@ spec:
                 operator: NotIn
                 values:
                 - "true"
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - zookeeper
+            topologyKey: "kubernetes.io/hostname"
     storage:
       type: ephemeral
   entityOperator:

@@ -117,7 +117,7 @@ structure. As we use TCP sockets recv should block, and so if msg is empty
 the connection has been closed -}
 readFromSocket :: Socket -> IO (Maybe B.ByteString)
 readFromSocket conn = do
-    msg <- recv conn 4096
+    msg <- recv conn (1024*1024)
     if B.null msg
         then error "Upstream connection closed"
         else return $ Just msg
@@ -137,12 +137,13 @@ sendStreamTCP _ conf met kset stream =
 
 {- Encode messages and send over the socket -}
 writeSocket :: Store alpha => Socket -> Metrics -> Maybe (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO ()
+writeSocket _    _   _       []     = return ()
 writeSocket conn met Nothing stream =
     mapM_ (\event ->
             let val = SS.encodeMessage . SS.Message $ event
             in  PC.inc (_egressEvents met)
-                >> PC.add (B.length val) (_egressBytes met)
-                >> sendAll conn val) stream
+                >> sendAll conn val
+                >> PC.add (B.length val) (_egressBytes met)) stream
 -- memory leak (kr never reduces in size)
 -- writeSocket conn met (Just (kc, kr)) stream =
 --     mapM_ (\event -> do
@@ -159,8 +160,8 @@ writeSocket conn met (Just (kc, kr)) (event:xs) = do
         (artc,rest) = span (\x -> eventId event >= fst x) kr
         rtc = map snd artc
     PC.inc (_egressEvents met)
-        >> PC.add (B.length val) (_egressBytes met)
         >> sendAll conn val
+        >> PC.add (B.length val) (_egressBytes met)
     mapM_ (storeOffsetMessage kc) rtc
     writeSocket conn met (Just (kc, rest)) xs
 
@@ -203,10 +204,11 @@ listenSocket port = do
                                addrSocketType = Stream }
     (sock, addr) <- createSocket [] port hints
     setSocketOption sock ReuseAddr 1
+    setSocketOption sock RecvBuffer (1024*1024*2)
     bind sock $ addrAddress addr
     listen sock maxQConn
     return sock
-    where maxQConn = 10
+    where maxQConn = 16
 
 
 connectSocket :: HostName -> ServiceName -> IO Socket
@@ -214,6 +216,7 @@ connectSocket host port = do
     let hints = defaultHints { addrSocketType = Stream }
     (sock, addr) <- createSocket host port hints
     setSocketOption sock KeepAlive 1
+    setSocketOption sock SendBuffer (1024*1024*2)
     connect sock $ addrAddress addr
     return sock
 

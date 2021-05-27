@@ -17,7 +17,7 @@ spec:
         egress:  "TCP"
       edge: false
     - id: 2
-      image: adamcattermole/striot-node4:latest
+      image: adamcattermole/striot-node3:latest
       connectType:
         ingress: "TCP"
         egress:  "TCP"

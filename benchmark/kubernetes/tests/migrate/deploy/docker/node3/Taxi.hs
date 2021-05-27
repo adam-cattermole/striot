@@ -421,6 +421,7 @@ simulateData fileName = do
     go Nothing stream
         where
             go :: Maybe (Event Trip) -> Stream Trip -> IO (Stream (UTCTime, Trip))
+            go _       []     = threadDelay (1000*1000*60) >> return []
             go Nothing (x:xs) = unsafeInterleaveIO $ do
                 let v         = fromJust . value $ x
                 now <- getCurrentTime
@@ -432,5 +433,6 @@ simulateData fileName = do
                     delay     = (1000000 * (floor . toRational $ diff))
                     v         = fromJust . value $ x
                 now <- getCurrentTime
-                rest <- threadDelay (floor ((fromIntegral delay)/10)) >> go (Just x) xs
+                rest <- threadDelay (floor ((fromIntegral delay)/100)) >> go (Just x) xs
+                -- rest <- go (Just x) xs
                 return (x { value = Just (now, v) } : rest)

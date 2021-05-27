@@ -31,5 +31,5 @@ manageEvent (Event i Nothing  t v) = False
 tailManage :: Store alpha => Event alpha -> Event alpha
 tailManage e@(Event _ Nothing _ _) = e
 tailManage e@(Event _ (Just m) _ _)
-    | tail m == [] = e { manage = Nothing }
-    | otherwise    = e { manage = Just $ tail m } 
+    | null (tail m) = e { manage = Nothing }
+    | otherwise     = e { manage = Just $ tail m }

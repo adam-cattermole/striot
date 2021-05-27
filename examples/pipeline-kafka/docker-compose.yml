@@ -8,6 +8,7 @@ services:
       KAFKA_ADVERTISED_HOST_NAME: kafka
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_CREATE_TOPICS: "striot-queue:1:1"
+      KAFKA_COMPRESSION_TYPE: "lz4"
   zookeeper:
       image: wurstmeister/zookeeper:latest
       ports:

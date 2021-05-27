@@ -1,6 +1,7 @@
 FROM striot/striot-base:latest
 WORKDIR /opt/node
 COPY . /opt/node
+RUN mkdir /opt/node/output
 
 RUN ghc node.hs
 EXPOSE 9001

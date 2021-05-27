@@ -10,6 +10,7 @@ extra-deps:
 - websockets-0.12.6.1
 - connection-0.3.1
 - socks-0.6.1
-- hw-kafka-client-3.0.0
+- hw-kafka-client-4.0.3
 - envy-2.0.0.0
 - hedis-0.12.13
+- lz4-0.2.3.1

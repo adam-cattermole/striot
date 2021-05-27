@@ -27,9 +27,10 @@ sendManage :: (Store alpha, Store beta,
 sendManage iofn streamOp = do
     c <- ask
     metrics <- liftIO $ startPrometheus (c ^. nodeName)
-    let stream = [Event 0 (Just ["sdj123914k"]) Nothing Nothing]
+    let stream = [Event 0 (Just ["stateless","sdj123914k"]) Nothing Nothing]
         result = streamOp stream
-    liftIO $ threadDelay (1000*1000*300)
+    liftIO $ threadDelay (1000*1000*90)
+           >> print "Sending manage..."
     sendStream metrics Nothing result
 
 main :: IO ()

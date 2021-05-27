@@ -15,9 +15,10 @@ import           Data.Time                   (UTCTime (..))
 
 -- streamGraphFn :: Stream (UTCTime, Trip) -> Stream (UTCTime, Trip)
 -- streamGraphFn = id
-
-streamGraphFn :: Stream (UTCTime, Trip) -> Stream (UTCTime, Journey)
-streamGraphFn s = streamFilter (\(t,j) -> inRangeQ1 (start j) && inRangeQ1 (end j))
+-- slidingTime 180000
+streamGraphFn :: Stream (UTCTime, Trip) -> Stream [(UTCTime, Journey)]
+streamGraphFn s = streamWindow (slidingTime 180000)
+                $ streamFilter (\(t,j) -> inRangeQ1 (start j) && inRangeQ1 (end j))
                 $ streamMap (\(t,v) -> (t, tripToJourney v)) s
 
 

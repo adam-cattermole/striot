@@ -10,7 +10,7 @@ import           Data.Time                   (UTCTime (..))
 
 
 -- src1 = simulateData "data/sorteddata_large.csv"
-src1 = simulateData "data/sorteddata-0-25000.csv"
+src1 = simulateData "sorteddata-20000-45000.csv"
 
 
 streamGraphFn :: Stream (UTCTime, Trip) -> Stream (UTCTime, Trip)
@@ -22,4 +22,6 @@ main = do
     conf <- decodeEnv :: IO (Either String StriotConfig)
     case conf of
         Left _  -> print "Could not read from env"
-        Right c -> nodeSourceC c src1 streamGraphFn
+        Right c -> threadDelay 10000000
+                >> nodeSourceC c src1 streamGraphFn
+                >> threadDelay 3000000000 -- 3000 sec

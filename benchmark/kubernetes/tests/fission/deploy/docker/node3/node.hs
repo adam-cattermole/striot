@@ -1,79 +1,85 @@
 {-# LANGUAGE FlexibleContexts #-}
-
--- node3
-import           Control.Concurrent
-import           Control.Monad.State
-import           Control.Monad.Trans.Control
-import           Striot.FunctionalIoTtypes
-import           Striot.FunctionalProcessing
-import           Striot.Nodes
-import           Striot.Nodes.Types
-import           System.Envy
-import           Taxi
-import           Data.Time                   (UTCTime (..))
+-- node4
+import Striot.FunctionalIoTtypes
+import Striot.FunctionalProcessing
+import Striot.Nodes
+import Control.Concurrent
+import System.IO
+import Taxi
+import Data.Time
+import Control.Exception (bracket)
+import Control.Monad (forever)
 
 
--- streamGraphFnM :: (MonadState s m,
---                   HasStriotState s Int,
---                   MonadIO m,
---                   MonadBaseControl IO m)
---                => Stream Int -> m (Stream Int)
--- streamGraphFnM = streamScanM (\acc _ -> (+5) acc) (-1)
--- -- (-1) matches the IDs of the messages
--- -- setting to 0 shows an actual counter of how many messages we received (assuming succ)
+sink1 :: Show a => Stream a -> IO ()
+sink1 s = do
+    now <- getCurrentTime
+    let fileName = "data/fission_" ++ (formatTime defaultTimeLocale "%d-%m-%Y_%H%M%S" now) ++ ".txt"
+    hdl <- openFile fileName WriteMode
+    hSetBuffering hdl NoBuffering
+    mapM_ (hPutStrLn hdl . show) s
 
 
--- streamGraphFnM' :: (MonadState s m,
---                   HasStriotState s (Stream Int),
---                   MonadIO m,
---                   MonadBaseControl IO m)
---                => Stream Int -> m (Stream [Int])
--- streamGraphFnM' = streamWindowM (slidingTimeM 12000)
---                 <$> streamFilter (>3)
---                 <$> streamMap id
+sinkLatencyFile :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
+sinkLatencyFile stream = do
+    now <- getCurrentTime
+    let fileName = "output/fission_" ++ (formatTime defaultTimeLocale "%d-%m-%Y_%H%M%S" now) ++ ".txt"
+    sinkLatencyFile' fileName stream
+    -- hdl <- openFile fileName WriteMode
+    -- hSetBuffering hdl NoBuffering
+    -- mapM_ (\event -> do
+    --     diff <- getLatency event
+    --     hPutStrLn hdl . show $ diff
+    --     ) stream
 
-streamGraphFn :: Stream (UTCTime, Trip) -> Stream (UTCTime, Trip)
+sinkLatencyFile' :: String -> Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
+sinkLatencyFile' fileName stream = forever $ do
+    bracket
+        (do
+            hdl <- openFile fileName WriteMode
+            hSetBuffering hdl NoBuffering
+            return hdl)
+        (hClose)
+        (\hdl -> do
+            mapM_ (\event -> do
+                diff <- getLatency event
+                hPutStrLn hdl . show $ diff
+                ) stream)
+
+sinkLatency :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO ()
+sinkLatency =
+    mapM_ (\event -> do
+        diff <- getLatency event
+        print diff)
+
+getLatency :: Event (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> IO (UTCTime, NominalDiffTime)
+getLatency (Event _ _ _ Nothing) = do
+    now <- getCurrentTime
+    return (now, 0)
+getLatency (Event _ _ _ (Just (t,_,_))) = do
+    now <- getCurrentTime
+    return (now, diffUTCTime now t)
+
+
+sink2 :: Show a => Stream a -> IO ()
+sink2 = mapM_ print
+
+
+
+streamGraphFn :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)])
 streamGraphFn = id
 
-
--- streamGraphFnM :: (MonadState s m,
---                   HasStriotState s ((UTCTime, UTCTime), [(Journey, Int)]),
---                   MonadIO m,
---                   MonadBaseControl IO m)
---                => Stream Trip -> m (Stream ((UTCTime, UTCTime), [(Journey, Int)]))
--- streamGraphFnM s = journeyChangesM
---                  $ streamMap (\w -> (let lj = last w in (pickupTime lj, dropoffTime lj), topk 10 w))
---                  $ streamWindow (slidingTime 1800000)
---                  $ streamFilter (\j -> inRangeQ1 (start j) && inRangeQ1 (end j))
---                  $ streamMap    tripToJourney s
+-- streamGraphLatency :: Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]) -> Stream NominalDiffTime
+-- streamGraphLatency stream = do
+--     streamMap (\(t,_,_) -> do
+--         now <- getCurrentTime
+--         let diff = diffUTCTime now t
+--         return diff
+--         ) stream
 
 
--- streamGraphFnM :: (MonadState s m,
---                   HasStriotState s (Stream [Journey]),
---                   MonadIO m,
---                   MonadBaseControl IO m)
---                => Stream Trip -> m ([Stream [Journey]])
---                => Stream Trip -> m (Stream ((UTCTime, UTCTime), [(Journey, Int)]))
-
-
--- streamGraphFnM :: (MonadState s m,
---                    HasStriotState s (Stream (UTCTime, Journey)),
---                    MonadIO m,
---                    MonadBaseControl IO m)
---                => Stream (UTCTime, Trip) -> m (Stream [(UTCTime, Journey)])
--- streamGraphFnM = streamWindowM (slidingTimeM 1800000)
---                <$> streamFilter (\(t,j) -> inRangeQ1 (start j) && inRangeQ1 (end j))
---                <$> streamMap (\(t,v) -> (t, tripToJourney v))
--- streamMap (\w -> (let lj = last w in (pickupTime lj, dropoffTime lj), topk 10 w))
-
-streamGraphFnM' :: (MonadState s m,
-                   HasStriotState s (Stream (UTCTime, Journey)),
-                   MonadIO m,
-                   MonadBaseControl IO m)
-               => Stream (UTCTime, Journey) -> m (Stream (UTCTime, (UTCTime, UTCTime), [(Journey, Int)]))
-streamGraphFnM' s = streamMap (windowTopk)
-                 <$> streamWindowM (slidingTimeM 180000) s
-                 -- 1800000 = 30m
+streamGraphFn' :: Stream (UTCTime, Trip) -> Stream (UTCTime, Trip)
+streamGraphFn' = id
 
 
 -- journeyChangesM :: (MonadState s m,
@@ -81,19 +87,11 @@ streamGraphFnM' s = streamMap (windowTopk)
 --                    MonadIO m,
 --                    MonadBaseControl IO m)
 --                 => Stream ((UTCTime, UTCTime),[(Journey, Int)]) -> m (Stream ((UTCTime, UTCTime),[(Journey, Int)]))
--- -- journeyChangesM :: (MonadState s m, HasStriotState s (a, b), MonadIO m, MonadBaseControl IO m, Eq b) => Stream (a, b) -> m (Stream (a, b))
--- journeyChangesM (Event _ _ _ (Just val):r) = streamFilterAccM (\acc h -> if snd h == snd acc then acc else h) val (\h acc -> snd h /= snd acc) r
+-- journeyChangesM :: (MonadState s m, HasStriotState s (a, b), MonadIO m, MonadBaseControl IO m, Eq b) => Stream (a, b) -> m (Stream (a, b))
 
-
-windowTopk :: [(UTCTime, Journey)] -> (UTCTime, (UTCTime, UTCTime), [(Journey, Int)])
-windowTopk win =
-    let (t, j)   = unzip win
-        (lt, lj) = last win
-    in  (lt, (pickupTime lj, dropoffTime lj), topk 10 j)
+journeyChanges (Event _ _ _ (Just val):r) = streamFilterAccM (\acc h -> if snd h == snd acc then acc else h) val (\h acc -> snd h /= snd acc) r
 
 main :: IO ()
-main = do
-    conf <- decodeEnv :: IO (Either String StriotConfig)
-    case conf of
-        Left _  -> print "Could not read from env"
-        Right c -> nodeLinkStateful c streamGraphFnM'
+main = nodeSink (defaultSink "9001") streamGraphFn sinkLatencyFile
+
+

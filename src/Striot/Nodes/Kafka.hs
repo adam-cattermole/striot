@@ -11,11 +11,16 @@ import           Control.Concurrent.Chan.Unagi.Bounded    as U
 import qualified Control.Exception                        as E (bracket)
 import           Control.Lens
 import           Control.Monad                            (forever, void)
+import           Codec.Compression.LZ4                    (compress, decompress)
 import qualified Data.ByteString                          as B (ByteString,
                                                                 length)
 import           Data.Store                               (Store, decode,
                                                            encode)
 import           Data.Text                                as T (Text, pack)
+import           Data.UUID
+import           Data.UUID.V4
+import           Data.Maybe                               (fromMaybe)
+import qualified Data.Map                                 as M (fromList)
 import           Kafka.Consumer                           as KC
 import           Kafka.Producer                           as KP
 import           Striot.FunctionalIoTtypes
@@ -33,8 +38,7 @@ sendStreamKafka name conf met kset stream =
           mkProducer              = PG.inc (_egressConn met)
                                     >> print "create new producer"
                                     >> newProducer (producerProps conf)
-          clProducer (Left _)     = print "error close producer"
-                                    >> return ()
+          clProducer (Left _)     = void (print "error close producer")
           clProducer (Right prod) = PG.dec (_egressConn met)
                                     >> closeProducer prod
                                     >> print "close producer"
@@ -51,15 +55,29 @@ producerProps :: KafkaConfig -> ProducerProperties
 producerProps conf =
     KP.brokersList [BrokerAddress $ brokerAddress conf]
        <> KP.logLevel KafkaLogDebug
+       <> KP.compression KP.Lz4
+       <> KP.extraProps (M.fromList
+            [
+              ("linger.ms", "500")
+            , ("acks", "0")
+            , ("batch.size", T.pack . show $ 1024*1024*2)
+            , ("queue.buffering.max.kbytes", T.pack . show $ 1024*1024*2)
+            , ("retry.backoff.ms", "50")
+       ])
 
 
 sendMessagesKafka :: Store alpha => KafkaProducer -> TopicName -> Metrics -> Maybe (KafkaConsumer, [(Int, KafkaRecord)]) -> Stream alpha -> IO (Either KafkaError ())
+sendMessagesKafka prod topic met _       []     = closeProducer prod >> return (Right ())
 sendMessagesKafka prod topic met Nothing stream = do
     mapM_ (\event -> do
             let val = encode event
-            produceMessage prod (mkMessage topic Nothing (Just val))
-                >> PC.inc (_egressEvents met)
-                >> PC.add (B.length val) (_egressBytes met)
+                -- c   = compress val
+                -- out = fromMaybe val c
+            m <- produceMessage prod (mkMessage topic Nothing (Just val))
+            case m of
+                Just err -> print $ "produce error: " ++ show err
+                Nothing  -> PC.inc (_egressEvents met)
+                         >> PC.add (B.length val) (_egressBytes met)
           ) stream
     return $ Right ()
 -- memory leak (kr never reduces in size)
@@ -78,14 +96,32 @@ sendMessagesKafka prod topic met (Just (kc, kr)) (event:xs) = do
     let val = encode . tailManage $ event
         (artc, rest) = span (\x -> eventId event >= fst x) kr
         rtc = map snd artc
-    produceMessage prod (mkMessage topic Nothing (Just val))
-        >> PC.inc (_egressEvents met)
-        >> PC.add (B.length val) (_egressBytes met)
+        -- c   = compress val
+        -- out = fromMaybe val c
+    m <- produceMessage prod (mkMessage topic Nothing (Just val))
+    case m of
+        Just err -> print $ "produce error: " ++ show err
+        Nothing  -> PC.inc (_egressEvents met)
+                 >> PC.add (B.length val) (_egressBytes met)
     mapM_ (storeOffsetMessage kc) rtc
     sendMessagesKafka prod topic met (Just (kc, rest)) xs
     return $ Right ()
 
 
+retrySend :: Int -> KafkaProducer -> TopicName -> B.ByteString -> IO (Either KafkaError ())
+retrySend retry prod topic val = do
+    m <- produceMessage prod (mkMessage topic Nothing (Just val))
+    let r = retry-1
+    case m of
+        Just err -> threadDelay retryBackoff
+                 >> if r == 0 then
+                        return $ Left err
+                    else
+                        retrySend r prod topic val
+        Nothing  -> return $ Right ()
+
+retryBackoff :: Int
+retryBackoff = 50
 
 mkMessage :: TopicName -> Maybe B.ByteString -> Maybe B.ByteString -> ProducerRecord
 mkMessage topic k v =
@@ -100,7 +136,7 @@ mkMessage topic k v =
 runKafkaConsumer :: Store alpha => String -> KafkaConfig -> Metrics -> U.InChan (Event alpha) -> IO ()
 runKafkaConsumer name conf met chan =
     E.bracket
-        (mkConsumer conf met)
+        (mkConsumer name conf met)
         (clConsumer met)
         (runHandler met chan)
     -- where
@@ -123,25 +159,26 @@ runKafkaConsumer' :: Store alpha
                   => String
                   -> KafkaConfig
                   -> Metrics
-                  -> U.InChan (KafkaRecord, (Event alpha))
+                  -> U.InChan (KafkaRecord, Event alpha)
                   -> IO (Either KafkaError KafkaConsumer)
 runKafkaConsumer' name conf met chan = do
-    kc <- mkConsumer conf met
+    kc <- mkConsumer name conf met
     async $ runHandler' met chan kc
           >> clConsumer met kc
     async $ connectTCP' name defaultTCPConfig met chan
     return kc
 
 
-mkConsumer :: KafkaConfig -> Metrics -> IO (Either KafkaError KafkaConsumer)
-mkConsumer conf met = PG.inc (_ingressConn met)
+mkConsumer :: String -> KafkaConfig -> Metrics -> IO (Either KafkaError KafkaConsumer)
+mkConsumer name conf met = PG.inc (_ingressConn met)
                     >> print "create new consumer"
-                    >> newConsumer (consumerProps conf)
+                    >> do
+                        uuid <- nextRandom
+                        newConsumer (consumerProps name conf uuid)
                                 (consumerSub $ TopicName . T.pack $ conf ^. kafkaTopic)
 
 clConsumer :: Metrics -> Either KafkaError KafkaConsumer -> IO ()
-clConsumer met (Left err) = print "error close consumer"
-                                     >> return ()
+clConsumer met (Left err) = void (print "error close consumer")
 clConsumer met (Right kc) = void
                           $ closeConsumer kc
                             >> PG.dec (_ingressConn met)
@@ -152,8 +189,7 @@ runHandler :: Store alpha
            -> U.InChan (Event alpha)
            -> Either KafkaError KafkaConsumer
            -> IO ()
-runHandler _   _    (Left err) = print "error handler close consumer"
-                               >> return ()
+runHandler _   _    (Left err) = void (print "error handler close consumer")
 runHandler met chan (Right kc) = print "runhandler consumer"
                                >> threadDelay kafkaConnectDelayMs
                                >> processKafkaMessages met kc chan
@@ -163,24 +199,30 @@ processKafkaMessages :: Store alpha => Metrics -> KafkaConsumer -> U.InChan (Eve
 processKafkaMessages met kc chan = forever $ do
     threadDelay kafkaConnectDelayMs
     msg <- pollMessage kc (Timeout 50)
-    either (\_ -> return ()) extractValue msg
+    either (\err ->
+        case err of
+            KafkaResponseError RdKafkaRespErrTimedOut -> return ()
+            _                                         ->
+                print $ "consume error: " ++ show err) extractValue msg
       where
         extractValue m = maybe (print "kafka-error: crValue Nothing") writeRight (crValue m)
-        writeRight   v = either (\err -> print $ "decode-error: " ++ show err)
-                                (\x -> do
-                                    PC.inc (_ingressEvents met)
-                                        >> PC.add (B.length v) (_ingressBytes met)
-                                    U.writeChan chan x)
-                                (decode v)
+        writeRight   v =
+            -- let dec = decompress v
+                -- out = fromMaybe v dec
+            either (\err -> print $ "decode-error: " ++ show err)
+                (\x -> do
+                    PC.inc (_ingressEvents met)
+                        >> PC.add (B.length v) (_ingressBytes met)
+                    U.writeChan chan x)
+                (decode v)
 
 
 runHandler' :: Store alpha
            => Metrics
-           -> U.InChan (KafkaRecord, (Event alpha))
+           -> U.InChan (KafkaRecord, Event alpha)
            -> Either KafkaError KafkaConsumer
            -> IO ()
-runHandler' _   _    (Left err) = print "error handler close consumer"
-                                   >> return ()
+runHandler' _   _    (Left err) = void (print "error handler close consumer")
 runHandler' met chan (Right kc) = print "runhandler consumer"
                                    >> threadDelay kafkaConnectDelayMs
                                 -- >> threadDelay 30000000
@@ -191,14 +233,20 @@ runHandler' met chan (Right kc) = print "runhandler consumer"
 
 
 
-processKafkaMessages' :: Store alpha => Metrics -> KafkaConsumer -> U.InChan (KafkaRecord, (Event alpha)) -> IO ()
+processKafkaMessages' :: Store alpha => Metrics -> KafkaConsumer -> U.InChan (KafkaRecord, Event alpha) -> IO ()
 processKafkaMessages' met kc chan = forever $ do
     msg <- pollMessage kc (Timeout 50)
-    either (\_ -> return ()) writeKR msg
+    either (\err ->
+        case err of
+            KafkaResponseError RdKafkaRespErrTimedOut -> return ()
+            _                                         ->
+                print $ "consume error: " ++ show err) writeKR msg
     -- processKafkaMessages' met kc chan
       where
         writeKR m =
             let (Just v) = crValue m
+                -- dec      = decompress v
+                -- out      = fromMaybe v dec
             in  either  (\err -> do
                             print $ "decode-error: " ++ show err)
                         (\x -> do
@@ -208,24 +256,39 @@ processKafkaMessages' met kc chan = forever $ do
                         (decode v)
 
 
-consumerProps :: KafkaConfig -> ConsumerProperties
-consumerProps conf =
+consumerProps :: String -> KafkaConfig -> UUID -> ConsumerProperties
+consumerProps name conf uuid =
     KC.brokersList [BrokerAddress $ brokerAddress conf]
         <> groupId (ConsumerGroupId . T.pack $ conf ^. kafkaConGroup)
-        <> KC.logLevel KafkaLogInfo
+        <> clientId (ClientId . toText $ uuid)
+        -- <> KC.logLevel KafkaLogInfo
+        <> KC.logLevel KafkaLogDebug
         -- <> KC.debugOptions [DebugAll]
+        <> KC.debugOptions [DebugBroker, DebugTopic, DebugQueue, DebugCgrp]
+        <> KC.compression KC.Lz4
         -- test no auto commit
         -- THIS HAS TO BE BEFORE CALLBACKPOLLMODE FOR SOME REASON
         -- <> KC.noAutoCommit
-        <> KC.noAutoOffsetStore
+        -- for scaling disable next line
+        -- <> KC.noAutoOffsetStore
         -- <> extraProp "session.timeout.ms" "120000"
         -- <> (KC.setCallback $ rebalanceCallback rbCallBack)
         -- <> (KC.setCallback $ offsetCommitCallback ocCallBack)
         -- WE CAN NOT ADD OPTIONS AFTER THIS LAST ONE
         -- (OR AT LEAST NOAUTOCOMMIT / NOAUTOOFFSETSTORE)
         -- DO NOT WORK BELOW THIS LINE FOR SOME REASON
+        -- for scaling disable
+        -- <> KC.callbackPollMode CallbackPollModeSync
+        <> KC.autoCommit 5000
+        <> KC.extraProps (M.fromList [
+            ("fetch.min.bytes", T.pack . show $ 1024*1024),
+            ("socket.receive.buffer.bytes", T.pack . show $ 16*1024*1024),
+            ("fetch.error.backoff.ms", T.pack . show $ 50)
+            ])
+        <> queuedMaxMessagesKBytes 104800
+        -- <> extraProp "fetch.min.bytes" "1048576"
+        -- <> KC.autoCommit 5000
         <> KC.callbackPollMode CallbackPollModeSync
-
 
 -- rbCallBack :: KafkaConsumer -> RebalanceEvent -> IO ()
 -- rbCallBack kc e@(RebalanceBeforeAssign xs) = print ("REB_CALLBACK: " ++ show e)

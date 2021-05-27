@@ -424,15 +424,15 @@ simulateData fileName = do
             go _       []     = threadDelay (1000*1000*60) >> return []
             go Nothing (x:xs) = unsafeInterleaveIO $ do
                 let v         = fromJust . value $ x
-                now <- getCurrentTime
                 rest <- go (Just x) xs
+                now <- getCurrentTime
                 return ( x { value = Just (now, v) } : rest)
             go (Just p) (x:xs) = unsafeInterleaveIO $ do
                 let getTime e = fromJust . time $ e 
                     diff      = diffUTCTime (getTime x) (getTime p)
                     delay     = (1000000 * (floor . toRational $ diff))
                     v         = fromJust . value $ x
+                rest <- threadDelay (floor ((fromIntegral delay)/12)) >> go (Just x) xs
                 now <- getCurrentTime
-                rest <- threadDelay (floor ((fromIntegral delay)/100)) >> go (Just x) xs
                 -- rest <- go (Just x) xs
                 return (x { value = Just (now, v) } : rest)

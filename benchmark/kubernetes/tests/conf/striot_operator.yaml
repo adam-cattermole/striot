@@ -179,7 +179,8 @@ spec:
       containers:
         - name: striot-operator
           # Replace this with the built image name
-          image: adamcattermole/striot-operator
+          image: adamcattermole/striot-operator:scaling-c100-affin
+          # image: adamcattermole/striot-operator:migrate
           command:
           - striot-operator
           imagePullPolicy: Always

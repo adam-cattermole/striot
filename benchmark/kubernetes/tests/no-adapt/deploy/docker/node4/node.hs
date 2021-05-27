@@ -88,7 +88,11 @@ streamGraphFn' = id
 
 journeyChanges (Event _ _ _ (Just val):r) = streamFilterAccM (\acc h -> if snd h == snd acc then acc else h) val (\h acc -> snd h /= snd acc) r
 
+notopkwindowonly :: Stream [(UTCTime, Journey)] -> Stream Int
+notopkwindowonly s = streamMap length $ s
+
 main :: IO ()
 main = nodeSink (defaultSink "9001") streamGraphFn sinkLatencyFile
+-- main = nodeSink (defaultSink "9001") notopkwindowonly sink2
 
 
